@@ -207,3 +207,7 @@ and the full sync engine against a mocked Google client (in-memory SQLite).
 ## License
 
 MIT
+
+## License
+
+MIT — see [LICENSE](LICENSE).

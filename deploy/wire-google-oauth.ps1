@@ -1,5 +1,5 @@
 $ErrorActionPreference = 'Stop'
-$cid = '994487527181-ud846fd4akdp4g77g37rdtufug3mmupv.apps.googleusercontent.com'
+$cid = Read-Host 'GOOGLE_CLIENT_ID'
 $receiver = 'C:\Users\r00t\.openclaw\workspace\calsync\deploy\wire-oauth-receiver.sh'
 Write-Host 'CalSync: wire/rotate the Google OAuth client credentials on the server.'
 Write-Host 'Paste the GOOGLE CLIENT SECRET when prompted (hidden input; it never enters chat).'
