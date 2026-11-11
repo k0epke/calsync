@@ -1,0 +1,36 @@
+[Unit]
+Description=CalSync — calendar feed to Google Calendar sync service
+Documentation=file:///opt/calsync/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=calsync
+Group=calsync
+WorkingDirectory=/opt/calsync
+Environment=NODE_ENV=production
+EnvironmentFile=/opt/calsync/.env
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=10
+TimeoutStopSec=20
+KillSignal=SIGINT
+
+# --- hardening ---
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+SystemCallArchitectures=native
+ReadWritePaths=/opt/calsync/data
+
+[Install]
+WantedBy=multi-user.target

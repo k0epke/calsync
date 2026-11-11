@@ -1,0 +1,454 @@
+// CalSync — self-hosted calendar feed -> Google Calendar sync.
+// Plain ESM Node web service: npm ci && node server.js
+import express from 'express';
+import session from 'express-session';
+import crypto from 'node:crypto';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { loadEnvFile, loadConfig, ROOT_DIR } from './lib/config.js';
+import { openDatabase } from './lib/db.js';
+import { createLogger } from './lib/logger.js';
+import { ensureAdminUser, createRateLimiter, verifyCredentials, newCsrfToken, safeEqual } from './lib/auth.js';
+import { fetchFeed, normalizeFeedUrl } from './lib/fetchfeed.js';
+import { planSync } from './lib/planner.js';
+import { parseFeed, ParseError } from './lib/icalparse.js';
+import { createSyncEngine, SyncError } from './lib/sync.js';
+import { Scheduler, SYNC_INTERVAL_CHOICES } from './lib/scheduler.js';
+import { createOAuthClient, authUrlFor, GoogleCalendarClient, google as googleClientLib } from './lib/google.js';
+import { renderLogin, renderDashboard, renderPairForm, renderRuns, renderError, layout, esc } from './lib/render.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// --- configuration -----------------------------------------------------------
+loadEnvFile(path.join(ROOT_DIR, '.env'));
+const config = loadConfig();
+const logger = createLogger(config.logLevel);
+const isLoopback = ['127.0.0.1', 'localhost', '::1'].includes(config.host);
+const isProductionBind = !isLoopback;
+
+if (!config.adminPassword) {
+  logger.error('ADMIN_PASSWORD is not set. Copy .env.example to .env and set ADMIN_PASSWORD (and preferably SESSION_SECRET and the GOOGLE_* keys).');
+  process.exit(1);
+}
+if (!config.sessionSecret) {
+  if (isProductionBind) {
+    logger.error('SESSION_SECRET is required when binding a non-loopback HOST. Generate one with: node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'hex\'))"');
+    process.exit(1);
+  }
+  config.sessionSecret = crypto.randomBytes(48).toString('hex');
+  logger.warn('SESSION_SECRET not set — generated an ephemeral secret (all sessions are invalidated on restart). Set it in .env for stable sessions.');
+}
+if (isProductionBind) {
+  logger.warn(`Binding ${config.host}:${config.port} — this is a PUBLIC bind. Put a TLS reverse proxy in front (see deploy/nginx-calsync.conf),`);
+  logger.warn('set SESSION_COOKIE_SECURE=true, and make sure ADMIN_PASSWORD/SESSION_SECRET are strong.');
+}
+
+// --- state -------------------------------------------------------------------
+const db = await openDatabase(config.dbPath);
+const adminState = ensureAdminUser(db, config);
+if (adminState.pending) {
+  logger.error('No dashboard user exists and ADMIN_PASSWORD is empty — refusing to start. Set ADMIN_PASSWORD in .env.');
+  db.close();
+  process.exit(1);
+}
+if (adminState.created) logger.info(`Created dashboard admin account "${config.adminUsername}" (bcrypt-hashed).`);
+if (adminState.updated) logger.info(`Refreshed stored password hash for "${config.adminUsername}" from ADMIN_PASSWORD env.`);
+const loginLimiter = createRateLimiter({ max: config.loginMaxAttempts, windowMs: config.loginWindowMs });
+
+// --- google clients ----------------------------------------------------------
+const oauthClient = createOAuthClient(config); // null when GOOGLE_CLIENT_ID/SECRET missing
+if (!oauthClient) {
+  logger.warn('Google OAuth is not configured (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET). Sync runs will fail until configured and connected.');
+}
+
+function currentGoogleClient() {
+  if (!oauthClient) return null;
+  const account = db.getGoogleAccount();
+  if (!account?.refresh_token) return null;
+  const oc = new googleClientLib.auth.OAuth2(config.googleClientId, config.googleClientSecret, config.googleRedirectUrl);
+  oc.setCredentials({ refresh_token: account.refresh_token });
+  return new GoogleCalendarClient(oc, { logger });
+}
+
+// --- sync engine + scheduler ---------------------------------------------------
+const engine = createSyncEngine({
+  db,
+  config,
+  logger,
+  googleFactory: currentGoogleClient,
+  fetchFeedImpl: fetchFeed,
+  parseFeedImpl: (text) => parseFeed(text),
+  planSyncImpl: planSync,
+});
+
+const scheduler = new Scheduler({ db, config, runPair: engine.runPair, logger });
+
+// --- app -----------------------------------------------------------------------
+const app = express();
+app.disable('x-powered-by');
+if (config.trustProxy) app.set('trust proxy', 1);
+
+app.use(express.urlencoded({ extended: false, limit: '64kb' }));
+app.use(session({
+  name: 'calsync.sid',
+  secret: config.sessionSecret,
+  resave: false,
+  saveUninitialized: false,
+  rolling: true,
+  cookie: {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: config.sessionCookieSecure,
+    maxAge: 7 * 24 * 3600 * 1000,
+  },
+}));
+
+function redirectWith(res, params) {
+  const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v != null && v !== ''));
+  res.redirect(303, `/${qs.toString() ? `?${qs.toString()}` : ''}`);
+}
+
+// Pages are rendered through small factories so every route stays terse.
+const renderFactory = {
+  Dashboard: ({ pairs, google, csrf }) => renderDashboard({ pairs, google, csrf }),
+  PairForm: ({ pair, calendars, googleConnected, googleError, csrf }) => renderPairForm({ pair, calendars, googleConnected, googleError, csrf }),
+  Runs: ({ pair, runs }) => renderRuns({ pair, runs }),
+  Login: ({ next }) => renderLogin({ next }),
+  Error: ({ code, message }) => renderError({ code, message }),
+};
+
+function page(req, res, title, data = {}, flash = {}, status = 200) {
+  const { msg, err } = flash;
+  const { title: t, body } = renderFactory[title]({ ...data, csrf: req.session.csrf ?? '' });
+  res.status(status).send(layout({ title: t, body, user: req.session.user, msg, err }));
+}
+
+function safeNext(n) {
+  if (typeof n !== 'string' || !n.startsWith('/') || n.startsWith('//') || n.length > 200) return null;
+  return n;
+}
+
+// --- public, unauthenticated ---------------------------------------------------
+app.get('/healthz', (req, res) => {
+  res.status(200).json({ ok: true, service: 'calsync', uptime: Math.round(process.uptime()) });
+});
+
+// Static assets are authenticated like everything else.
+const ASSETS = path.join(__dirname, 'public');
+app.use('/assets', (req, res, next) => {
+  if (req.session?.user) return next();
+  if (req.method === 'GET') return res.redirect('/login');
+  res.status(401).json({ ok: false, error: 'Not authenticated' });
+}, express.static(ASSETS, { index: false, maxAge: '1h' }));
+
+// --- login/logout (rate limited) ------------------------------------------------
+app.get('/login', (req, res) => {
+  if (req.session.user) return res.redirect(303, '/');
+  page(req, res, 'Login', { next: safeNext(req.query.next) });
+});
+
+app.post('/login', (req, res) => {
+  const username = String(req.body?.username ?? '').trim();
+  const password = String(req.body?.password ?? '');
+  const ip = req.ip ?? 'unknown';
+  const key = `${ip}|${username.toLowerCase()}`;
+  const check = loginLimiter.check(key);
+  if (!check.ok) {
+    logger.warn(`Login rate limit hit for ${ip} (user "${username}")`);
+    return page(req, res, 'Login', { next: safeNext(req.query.next) },
+      { err: 'Too many login attempts — try again in a few minutes.' }, 429);
+  }
+  const user = username ? db.getUser(username) : null;
+  if (!verifyCredentials(user, password)) {
+    return page(req, res, 'Login', { next: safeNext(req.query.next) },
+      { err: 'Invalid username or password.' }, 401);
+  }
+  loginLimiter.reset(key);
+  req.session.regenerate((err) => {
+    if (err) return page(req, res, 'Login', { next: null }, { err: 'Login failed — session error.' }, 500);
+    req.session.user = username;
+    req.session.csrf = newCsrfToken();
+    const nextUrl = safeNext(req.query.next);
+    res.redirect(303, nextUrl ?? '/');
+  });
+});
+
+app.post('/logout', (req, res) => {
+  req.session.destroy(() => res.redirect(303, '/login'));
+});
+
+// --- CSRF guard for all state-changing POSTs except login ------------------------
+app.use((req, res, next) => {
+  if (req.method !== 'POST') return next();
+  if (req.path === '/login') return next();
+  if (!req.session.user) return next(); // auth gate rejects first
+  const token = req.body?._csrf ?? req.get('x-csrf-token') ?? '';
+  if (!safeEqual(token, req.session.csrf ?? '')) {
+    logger.warn(`CSRF token mismatch for ${req.ip} on ${req.path}`);
+    return redirectWith(res, { err: 'Invalid or missing CSRF token — reload the page and try again.' });
+  }
+  return next();
+});
+
+// --- auth gate: everything below requires a session -------------------------------
+app.use((req, res, next) => {
+  if (req.session?.user) return next();
+  if (req.method === 'GET' && (req.headers.accept ?? '').includes('text/html')) {
+    return res.redirect(303, `/login?next=${encodeURIComponent(req.originalUrl)}`);
+  }
+  return res.status(401).json({ ok: false, error: 'Not authenticated' });
+});
+
+// --- dashboard -------------------------------------------------------------------
+function googleState() {
+  const account = db.getGoogleAccount();
+  return {
+    configured: Boolean(oauthClient),
+    connected: Boolean(account?.refresh_token),
+    email: account?.email ?? null,
+    redirectUrl: config.googleRedirectUrl,
+  };
+}
+
+app.get('/', (req, res) => {
+  page(req, res, 'Dashboard', { pairs: db.listPairsWithStatus(), google: googleState() },
+    { msg: req.query.msg, err: req.query.err });
+});
+
+// --- sync pairs -------------------------------------------------------------------
+async function listCalendarsSafe() {
+  const gclient = currentGoogleClient();
+  if (!gclient) {
+    return { calendars: [], googleConnected: Boolean(db.getGoogleAccount()), googleError: null };
+  }
+  try {
+    const items = await gclient.listCalendars();
+    return { calendars: items, googleConnected: true, googleError: null };
+  } catch (err) {
+    return { calendars: [], googleConnected: true, googleError: err.message };
+  }
+}
+
+app.get('/pairs/new', async (req, res) => {
+  const { calendars, googleConnected, googleError } = await listCalendarsSafe();
+  page(req, res, 'PairForm', {
+    pair: null,
+    calendars,
+    googleConnected: googleConnected && Boolean(oauthClient),
+    googleError,
+  }, { msg: req.query.msg, err: req.query.err });
+});
+
+app.post('/pairs', async (req, res) => {
+  const created = await resolvePairPayload(req);
+  if (created.error) return redirectWith(res, { err: created.error });
+  const pair = db.createPair(created.fields);
+  scheduler.addPair(pair);
+  logger.info(`Pair ${pair.id} "${pair.name}" created (triggering initial sync)`);
+  engine.runPair(pair.id, { trigger: 'initial' }).catch(
+    (err) => logger.error(`Initial sync for pair ${pair.id}: ${err.message}`));
+  redirectWith(res, { msg: `Sync pair "${pair.name}" created — initial sync started in the background.` });
+});
+
+app.get('/pairs/:id/edit', async (req, res) => {
+  const pair = db.getPair(Number(req.params.id));
+  if (!pair) return page404(req, res);
+  const { calendars, googleConnected, googleError } = await listCalendarsSafe();
+  page(req, res, 'PairForm', {
+    pair: { ...pair, calendar_mode: String(req.query.mode ?? 'select') },
+    calendars,
+    googleConnected: googleConnected && Boolean(oauthClient),
+    googleError,
+  }, { msg: req.query.msg, err: req.query.err });
+});
+
+app.post('/pairs/:id', async (req, res) => {
+  const pair = db.getPair(Number(req.params.id));
+  if (!pair) return page404(req, res);
+  const parsed = await resolvePairPayload(req, pair);
+  if (parsed.error) return redirectWith(res, { err: parsed.error });
+  db.updatePair(pair.id, parsed.fields);
+  const updated = db.getPair(pair.id);
+  scheduler.addPair(updated);
+  redirectWith(res, { msg: `Sync pair "${updated.name}" updated (schedule re-armed).` });
+});
+
+// Validate + build pair fields; resolves target calendar (select/create/manual).
+async function resolvePairPayload(req, existing = null) {
+  const name = String(req.body?.name ?? '').trim();
+  const feedUrlRaw = String(req.body?.feed_url ?? '').trim();
+  const interval = Number(req.body?.interval_minutes ?? 0);
+  const errors = [];
+  if (!name || name.length > 80) errors.push('Name must be 1-80 characters.');
+  let normalizedUrl = '';
+  try {
+    normalizedUrl = String(normalizeFeedUrl(feedUrlRaw));
+  } catch (err) {
+    errors.push(`Feed URL: ${err.message}`);
+  }
+  if (!SYNC_INTERVAL_CHOICES.includes(interval)) {
+    errors.push(`Interval must be one of: ${SYNC_INTERVAL_CHOICES.join(', ')} minutes.`);
+  }
+  if (errors.length) return { error: errors.join(' ') };
+
+  let calendarId = String(existing ? existing.calendar_id : '').trim();
+  const mode = String(req.body?.calendar_mode ?? 'manual');
+  if (oauthClient && db.getGoogleAccount()) {
+    if (mode === 'select') {
+      const picked = String(req.body?.calendar_id_select ?? '').trim();
+      if (!picked) return { error: 'Pick a target calendar.' };
+      calendarId = picked;
+    } else if (mode === 'create') {
+      const newCalName = String(req.body?.new_calendar_name ?? '').trim();
+      if (!newCalName || newCalName.length > 1024) return { error: 'New calendar name must be 1-1024 characters.' };
+      try {
+        const gclient = currentGoogleClient();
+        if (!gclient) return { error: 'Google account not connected — cannot create a calendar.' };
+        const cal = await gclient.createCalendar(newCalName, config.timezone);
+        if (!cal?.id) return { error: 'Calendar creation did not return an id.' };
+        calendarId = cal.id;
+        logger.info(`Created Google calendar "${newCalName}" (${cal.id})`);
+      } catch (err) {
+        return { error: `Calendar creation failed: ${err.message}` };
+      }
+    } else {
+      const manual = String(req.body?.calendar_id_manual ?? '').trim();
+      if (!/^[^\s]{5,300}$/.test(manual)) return { error: 'Custom calendar ID is empty or malformed.' };
+      calendarId = manual;
+    }
+  } else {
+    const manual = String(req.body?.calendar_id_manual ?? '').trim();
+    if (manual) calendarId = manual;
+  }
+  if (!calendarId) return { error: 'A target Google calendar ID is required.' };
+  return { fields: { name, feed_url: normalizedUrl, calendar_id: calendarId, interval_minutes: interval } };
+}
+
+app.post('/pairs/:id/sync', async (req, res) => {
+  const pair = db.getPair(Number(req.params.id));
+  if (!pair) return page404(req, res);
+  if (engine.isRunning(pair.id)) {
+    return redirectWith(res, { err: `Sync for "${pair.name}" is already running.` });
+  }
+  const result = await engine.runPair(pair.id, { trigger: 'manual' });
+  if (result.status === 'success') {
+    redirectWith(res, { msg: `Sync finished: ${result.log.imported} imported, ${result.log.deleted} deleted, 0 failed.` });
+  } else if (result.status === 'partial') {
+    redirectWith(res, { msg: `Sync finished with ${result.log.failed} failure(s): ${result.log.imported} imported, ${result.log.deleted} deleted. See runs for details.` });
+  } else {
+    redirectWith(res, { err: `Sync failed: ${result.error}` });
+  }
+});
+
+app.post('/pairs/:id/toggle', (req, res) => {
+  const pair = db.getPair(Number(req.params.id));
+  if (!pair) return page404(req, res);
+  const enabled = Number(pair.enabled) ? 0 : 1;
+  db.updatePair(pair.id, { enabled });
+  scheduler.addPair(db.getPair(pair.id));
+  redirectWith(res, { msg: `Sync pair "${pair.name}" ${enabled ? 'resumed' : 'paused'}.` });
+});
+
+app.post('/pairs/:id/delete', (req, res) => {
+  const pair = db.getPair(Number(req.params.id));
+  if (!pair) return page404(req, res);
+  scheduler.removePair(pair.id);
+  db.deletePair(pair.id);
+  redirectWith(res, { msg: `Sync pair "${pair.name}" deleted. Events already imported into Google were kept.` });
+});
+
+app.get('/pairs/:id/runs', (req, res) => {
+  const pair = db.getPair(Number(req.params.id));
+  if (!pair) return page404(req, res);
+  page(req, res, 'Runs', { pair, runs: db.listRuns(pair.id, 30) },
+    { msg: req.query.msg, err: req.query.err });
+});
+
+// --- Google OAuth ------------------------------------------------------------------
+app.get('/oauth/start', (req, res) => {
+  if (!oauthClient) {
+    return redirectWith(res, { err: 'Google OAuth is not configured — set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env.' });
+  }
+  res.redirect(303, authUrlFor(oauthClient));
+});
+
+app.get('/oauth/callback', async (req, res) => {
+  try {
+    if (!oauthClient) return redirectWith(res, { err: 'Google OAuth is not configured.' });
+    if (req.query.error) return redirectWith(res, { err: `Google authorization failed: ${req.query.error}` });
+    const code = String(req.query.code ?? '');
+    if (!code) return redirectWith(res, { err: 'Missing authorization code.' });
+    const { tokens } = await oauthClient.getToken(code);
+    if (!tokens.refresh_token) {
+      return redirectWith(res, { err: 'Google did not return a refresh token — revoke CalSync at https://myaccount.google.com/permissions then reconnect.' });
+    }
+    oauthClient.setCredentials(tokens);
+    const probe = new GoogleCalendarClient(oauthClient, { logger });
+    const info = await probe.userInfo();
+    db.setGoogleAccount({
+      refresh_token: tokens.refresh_token,
+      email: info?.email ?? null,
+      scope: tokens.scope ?? null,
+    });
+    logger.info(`Google account connected${info?.email ? ` (${info.email})` : ''}`);
+    redirectWith(res, { msg: `Google account connected${info?.email ? ` as ${info.email}` : ''}.` });
+  } catch (err) {
+    logger.warn(`OAuth callback failed: ${err.message}`);
+    redirectWith(res, { err: `Token exchange failed: ${err.message}` });
+  }
+});
+
+app.post('/oauth/disconnect', (req, res) => {
+  db.clearGoogleAccount();
+  redirectWith(res, { msg: 'Google account disconnected. Refresh token removed from local database.' });
+});
+
+// --- fallbacks ----------------------------------------------------------------------
+function page404(req, res) {
+  if ((req.headers.accept ?? '').includes('text/html')) {
+    const { title, body } = renderError({ code: '404', message: 'Page not found.' });
+    return res.status(404).send(layout({ title, body, user: req.session.user }));
+  }
+  res.status(404).json({ ok: false, error: 'Not found' });
+}
+app.use((req, res) => page404(req, res));
+
+app.use((err, req, res, _next) => { // eslint-disable-line no-unused-vars
+  logger.error(`Unhandled error on ${req.method} ${req.path}: ${err?.message ?? err}`);
+  if (res.headersSent) return;
+  if ((req.headers.accept ?? '').includes('text/html')) {
+    const { title, body } = renderError({ code: '500', message: 'Internal server error — see server logs.' });
+    return res.status(500).send(layout({ title, body, user: req.session?.user }));
+  }
+  res.status(500).json({ ok: false, error: 'Internal server error' });
+});
+
+// --- boot ---------------------------------------------------------------------------
+const server = app.listen(config.port, config.host, () => {
+  logger.info(`CalSync listening on http://${config.host}:${config.port}`);
+  logger.info('GET /healthz is public; everything else requires login.');
+  logger.info(`SQLite database: ${config.dbPath}`);
+  scheduler.startAll();
+});
+
+let shuttingDown = false;
+function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  logger.info(`${signal} received — shutting down`);
+  scheduler.stopAll();
+  server.close(() => {
+    try { db.close(); } catch { /* ignore */ }
+    logger.info('Shutdown complete');
+    process.exit(0);
+  });
+  setTimeout(() => {
+    logger.warn('Forcing exit after 5s');
+    process.exit(0);
+  }, 5000).unref();
+}
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+
+export { app, config, db, engine, scheduler, server };

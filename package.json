@@ -1,0 +1,25 @@
+{
+  "name": "calsync",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Self-hosted calendar feed -> Google Calendar sync service with a small authenticated dashboard.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/parse.test.js test/recurrence.test.js test/planner.test.js test/url.test.js test/sync.test.js",
+    "inspect": "node bin/inspect.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.0",
+    "express": "^5.0.0",
+    "express-session": "^1.18.0",
+    "fast-xml-parser": "^4.4.0",
+    "googleapis": "^144.0.0",
+    "ical.js": "^2.0.0",
+    "node-cron": "^3.0.2"
+  }
+}
