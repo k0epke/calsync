@@ -4,41 +4,42 @@ Self-hosted calendar sync: periodically pulls events from remote calendar feeds
 and mirrors them into dedicated **Google Calendars** via the official
 Google Calendar API v3, with a small authenticated web dashboard.
 
-- **Plain ESM JavaScript** — no TypeScript, no build step. Deploy is `npm ci` && `node server.js`.
-- **No native dependencies** — SQLite via the built-in `node:sqlite` module.
-- **Node.js >= 22** (Node 22.5+ requires `--experimental-sqlite`; Node 23.4+/24 run unflagged — 24 recommended).
+- **Plain ESM JavaScript** � no TypeScript, no build step. Deploy is `npm ci` && `node server.js`.
+- **No native dependencies** � SQLite via the built-in `node:sqlite` module.
+- **Node.js >= 22** (Node 22.5+ requires `--experimental-sqlite`; Node 23.4+/24 run unflagged � 24 recommended).
 
 ## Features
 
 - **Feed formats ( sniffed from content, URL extensions are ignored ):**
-  - **ICS** (iCalendar 2.0, RFC 5545) — folded lines, VTIMEZONE definitions, RRULE/RDATE/EXDATE, VALARM (ignored), STATUS:CANCELLED, all-day and duration events.
-  - **VCS** (vCalendar 1.0) — lenient: DSTART/DEND renamed, AALARM/DALARM dropped, common v1 RRULE bases (D/W/MD/MP/YD/YM) converted to RFC 5545; unsupported rules are dropped with a warning.
-  - **XCal** (RFC 6321 XML) — mapped to jCal per the RFC, including `<parameters>` and typed value elements.
-  - **JCal** (RFC 7265 JSON) — recur values accepted as objects or strings.
+  - **ICS** (iCalendar 2.0, RFC 5545) � folded lines, VTIMEZONE definitions, RRULE/RDATE/EXDATE, VALARM (ignored), STATUS:CANCELLED, all-day and duration events.
+  - **VCS** (vCalendar 1.0) � lenient: DSTART/DEND renamed, AALARM/DALARM dropped, common v1 RRULE bases (D/W/MD/MP/YD/YM) converted to RFC 5545; unsupported rules are dropped with a warning.
+  - **XCal** (RFC 6321 XML) � mapped to jCal per the RFC, including `<parameters>` and typed value elements.
+  - **JCal** (RFC 7265 JSON) � recur values accepted as objects or strings.
   - **webcal://** URLs are treated as `https://` (with a one-shot `http://` fallback *only* when TLS fails and the URL carries no credentials).
 - All feeds normalize to **jCal** via `ical.js` (the internal representation everywhere).
-- **Per-pair sync into a dedicated Google calendar** using `calendar.events.import` —
+- **Per-pair sync into a dedicated Google calendar** using `calendar.events.import` �
   an upsert keyed by `iCalUID`, which makes every run idempotent. Recurrence
   (RRULE/RDATE/EXDATE lines) is preserved; Google expands occurrences.
-- **Event window:** only events occurring within `[now − 30 days, now + 1 year]`
+- **Event window:** only events occurring within `[now - 30 days, now + 1 year]`
   are pushed (recurrence-aware: finite rules that end before the window are skipped,
   still-live infinite rules are kept). Tunable via env.
 - **Deletion sync:** after the import pass, events whose `iCalUID` was previously
   recorded in the local `synced_events` table but is now absent from the feed are
   deleted from the target calendar. **Events the app did not import are never
   touched.** Feed `STATUS:CANCELLED` events are treated as "removed by the feed"
-  the same way. If fetching or parsing fails, nothing is deleted — and if every
+  the same way. If fetching or parsing fails, nothing is deleted � and if every
   import in a run fails, the deletion pass is skipped entirely.
 - **Rate limiting:** exponential backoff with jitter on HTTP 429/5xx, `Retry-After`
   aware; strictly sequential per-event pushes with a small configurable delay;
   per-event failures are logged to the run log and the run continues (status `partial`).
-- **OAuth:** Google login → consent → refresh token (access_type=offline,
+- **OAuth:** Google login -> consent -> refresh token (access_type=offline,
   prompt=consent) stored in SQLite; the official `googleapis` package.
   "Create new calendar" action uses `calendars.insert`.
 - **Scheduler:** node-cron, one schedule per pair. Interval per pair (default 6h,
-  min 15m), 0–5 minute jitter on hourly-or-slower schedules, catch-up run after
-  restart for overdue pairs, manual **Sync now** button. Per-pair status, last run
-  and last error persist in SQLite.
+  min 15m), deterministic per-pair minute anchors ((pairId * 7) mod interval) so
+  same-interval pairs never fire together; catch-up run after restart for overdue
+  pairs, manual **Sync now** button. Per-pair status, last run and last error
+  persist in SQLite.
 - **Dashboard:** server-rendered HTML + a little vanilla JS, one small stylesheet,
   no frameworks. Pair CRUD, Google connection state, run history with per-event
   failure details.
@@ -46,24 +47,24 @@ Google Calendar API v3, with a small authenticated web dashboard.
 ## Security model
 
 - Username + password dashboard login (bcryptjs), httpOnly session cookie
-  (express-session, in-memory store — restart ⇒ relogin by design), per-IP
+  (express-session, in-memory store � restart ? relogin by design), per-IP
   login rate limiting, CSRF tokens on all state-changing POSTs.
 - `GET /healthz` is the only unauthenticated route; everything else requires a session.
 - Secrets only via environment / `.env` (gitignored, `.env.example` shipped).
   No hardcoded secrets; feed data is HTML-escaped everywhere it renders; `file://`
   fetching is never attempted.
 - Default bind is `127.0.0.1`. Binding `0.0.0.0` requires an explicit `HOST=0.0.0.0`
-  and logs a hard warning — put nginx with TLS in front (see `deploy/`).
+  and logs a hard warning � put nginx with TLS in front (see `deploy/`).
 
 ## Google Cloud OAuth setup (one-time)
 
-1. Open <https://console.cloud.google.com> → create (or pick) a project.
-2. **APIs & Services → Library** → enable **Google Calendar API**.
-3. **APIs & Services → OAuth consent screen**:
+1. Open <https://console.cloud.google.com> ? create (or pick) a project.
+2. **APIs & Services ? Library** ? enable **Google Calendar API**.
+3. **APIs & Services ? OAuth consent screen**:
    - User type **External**, add app name + your email;
    - Add scopes: `.../auth/calendar` (and `userinfo.email` for the dashboard display);
    - Add yourself as a **test user** (required while the app is in "Testing").
-4. **APIs & Services → Credentials → Create credentials → OAuth client ID**:
+4. **APIs & Services ? Credentials ? Create credentials ? OAuth client ID**:
    - Application type: **Web application**;
    - **Authorized redirect URI** must exactly match CalSync's redirect URL, e.g.
      - local dev: `http://127.0.0.1:8787/oauth/callback`
@@ -77,7 +78,7 @@ token stored (only) in the local SQLite database.
 ## Setup (Ubuntu / Debian)
 
 ```bash
-# 1. Packages — Node 24 LTS (NodeSource), git, nginx, certbot
+# 1. Packages � Node 24 LTS (NodeSource), git, nginx, certbot
 sudo apt update
 sudo apt install -y git curl nginx python3-certbot-nginx
 curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
@@ -119,7 +120,7 @@ sudo certbot --nginx -d cal.yourdomain.example
 ```
 
 Then open `https://cal.yourdomain.example`, log in with `ADMIN_USERNAME` /
-`ADMIN_PASSWORD`, connect the Google account (OAuth consent → refresh token
+`ADMIN_PASSWORD`, connect the Google account (OAuth consent ? refresh token
 stored locally), and add sync pairs.
 
 On **Node 22.x only**, run the service with `--experimental-sqlite`
@@ -134,11 +135,11 @@ On **Node 22.x only**, run the service with `--experimental-sqlite`
 | `CALSYNC_DB_PATH` | `<app>/data/calsync.db` | SQLite database file |
 | `LOG_LEVEL` | `info` | `debug` `info` `warn` `error` `silent` |
 | `ADMIN_USERNAME` | `admin` | Dashboard user (created on first boot) |
-| `ADMIN_PASSWORD` | — (**required**) | Dashboard password; bcrypt-hashed in DB, re-hashed when env changes |
+| `ADMIN_PASSWORD` | � (**required**) | Dashboard password; bcrypt-hashed in DB, re-hashed when env changes |
 | `SESSION_SECRET` | ephemeral on loopback | Cookie signing secret (**required** for non-loopback binds) |
 | `SESSION_COOKIE_SECURE` | `false` | Set `true` behind HTTPS |
 | `TRUST_PROXY` | `false` | Set `true` behind nginx (correct client IP for rate limiting) |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | — | OAuth client from Google Cloud console |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | � | OAuth client from Google Cloud console |
 | `GOOGLE_REDIRECT_URL` | `http://127.0.0.1:PORT/oauth/callback` | Must match the OAuth client's redirect URI |
 | `CALSYNC_TZ` | system tz | IANA timezone for cron schedules |
 | `PUSH_DELAY_MS` | `250` | Delay between sequential Google pushes |
@@ -150,15 +151,15 @@ On **Node 22.x only**, run the service with `--experimental-sqlite`
 ## Google push algorithm (per sync run)
 
 ```
-fetch feed (webcal→https, size+timeout caps)
-  └─ parse (ics/vcs/xcal/jcal → jCal)           # failure ⇒ run error, no Google mutations
-      └─ window filter [now−30d, now+1y]         # recurrence-aware; cancelled kept for planner
-          └─ plan = planSync(tracked uid set, feed events)   # pure function
-              ├─ import pass: events.import per event (sequential, delay, backoff,
-              │                iCalUID upsert ⇒ idempotent; failures logged, run continues)
-              └─ deletion pass: for tracked UIDs absent from the feed:
-                    events.list(iCalUID=…) → events.delete   # ONLY app-imported UIDs
-      └─ record run row + pair status in SQLite
+fetch feed (webcal?https, size+timeout caps)
+  +- parse (ics/vcs/xcal/jcal ? jCal)           # failure ? run error, no Google mutations
+      +- window filter [now-30d, now+1y]         # recurrence-aware; cancelled kept for planner
+          +- plan = planSync(tracked uid set, feed events)   # pure function
+              +- import pass: events.import per event (sequential, delay, backoff,
+              �                iCalUID upsert ? idempotent; failures logged, run continues)
+              +- deletion pass: for tracked UIDs absent from the feed:
+                    events.list(iCalUID=�) ? events.delete   # ONLY app-imported UIDs
+      +- record run row + pair status in SQLite
 ```
 
 Safety rails: feed fetch/parse failure aborts **before** any Google mutation;
@@ -167,14 +168,14 @@ is skipped that run so an outage cannot mass-delete the calendar.
 
 ## Troubleshooting
 
-- **`node:sqlite is unavailable`** — your Node is too old. Use Node ≥ 23.4 (24 recommended) or add `--experimental-sqlite` on Node 22.5+.
-- **Login loops after restart** — expected without `SESSION_SECRET` (ephemeral secret); set it in `.env`.
-- **`Google account not connected`** on runs — click *connect a Google account* on the dashboard; `GOOGLE_CLIENT_ID/SECRET` must be set first.
-- **`Google did not return a refresh token`** — the app was previously authorized; revoke it at <https://myaccount.google.com/permissions>, then reconnect (forces `prompt=consent`).
-- **Pair shows `partial` status** — open the pair's *Runs* page; per-event failure reasons (imports and deletes) are listed there.
-- **Feed shows `error: All imports failed…`** — usually an expired/revoked Google grant or API quota; the calendar was deliberately protected from deletions.
-- **Events shifted by one hour around DST** — feeds that reference `TZID` names *without* a `VTIMEZONE` definition are handled via the IANA database when the name is a standard zone; exotic `X-` zone names fall back to server-local time (see known gaps).
-- **Rate limited (`401` on login)** — too many failed attempts; the limiter window resets after `LOGIN_WINDOW_MINUTES`.
+- **`node:sqlite is unavailable`** � your Node is too old. Use Node = 23.4 (24 recommended) or add `--experimental-sqlite` on Node 22.5+.
+- **Login loops after restart** � expected without `SESSION_SECRET` (ephemeral secret); set it in `.env`.
+- **`Google account not connected`** on runs � click *connect a Google account* on the dashboard; `GOOGLE_CLIENT_ID/SECRET` must be set first.
+- **`Google did not return a refresh token`** � the app was previously authorized; revoke it at <https://myaccount.google.com/permissions>, then reconnect (forces `prompt=consent`).
+- **Pair shows `partial` status** � open the pair's *Runs* page; per-event failure reasons (imports and deletes) are listed there.
+- **Feed shows `error: All imports failed�`** � usually an expired/revoked Google grant or API quota; the calendar was deliberately protected from deletions.
+- **Events shifted by one hour around DST** � feeds that reference `TZID` names *without* a `VTIMEZONE` definition are handled via the IANA database when the name is a standard zone; exotic `X-` zone names fall back to server-local time (see known gaps).
+- **Rate limited (`401` on login)** � too many failed attempts; the limiter window resets after `LOGIN_WINDOW_MINUTES`.
 
 ## Development
 
@@ -185,7 +186,7 @@ npm run inspect -- test/fixtures/sample.vcs   # parse any feed without Google
 node scripts/ical-spike.js                    # probe raw ical.js API behavior
 ```
 
-Tests cover: content sniffing, ICS/VCS/XCal/JCal → jCal normalization (fixtures
+Tests cover: content sniffing, ICS/VCS/XCal/JCal ? jCal normalization (fixtures
 with folded lines, RRULE, VTIMEZONE, X-WR-CALNAME, a vCalendar 1.0 sample,
 an XCal sample, a JCal sample), window/relevance logic, upsert/deletion planning
 and the full sync engine against a mocked Google client (in-memory SQLite).
@@ -198,11 +199,11 @@ and the full sync engine against a mocked Google client (in-memory SQLite).
 - **Floating times** (no TZID, no `Z`) are interpreted as UTC and flagged in the run warnings.
 - `TZID`s without a shipped `VTIMEZONE` resolve via the IANA database when the
   name is standard; unknown zone names fall back to the server's timezone.
-- Imports don't diff content — every run re-imports the feed's events (idempotent
+- Imports don't diff content � every run re-imports the feed's events (idempotent
   `events.import` upsert by iCalUID makes this safe, at the cost of API calls).
 - Sessions are in-memory: restarting the service logs dashboard users out.
 - Recurrence window gating approximates EXDATE handling (an occurrence excluded
-  by EXDATE may still keep an otherwise-expired event in the import window — harmless).
+  by EXDATE may still keep an otherwise-expired event in the import window � harmless).
 
 ## License
 
@@ -210,4 +211,4 @@ MIT
 
 ## License
 
-MIT � see [LICENSE](LICENSE).
+MIT ? see [LICENSE](LICENSE).
