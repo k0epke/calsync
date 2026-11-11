@@ -121,7 +121,7 @@ const renderFactory = {
 function page(req, res, title, data = {}, flash = {}, status = 200) {
   const { msg, err } = flash;
   const { title: t, body } = renderFactory[title]({ ...data, csrf: req.session.csrf ?? '' });
-  res.status(status).send(layout({ title: t, body, user: req.session.user, msg, err }));
+  res.status(status).send(layout({ title: t, body, user: req.session.user, msg, err, csrf: req.session.csrf ?? '' }));
 }
 
 function safeNext(n) {
@@ -408,7 +408,7 @@ app.post('/oauth/disconnect', (req, res) => {
 function page404(req, res) {
   if ((req.headers.accept ?? '').includes('text/html')) {
     const { title, body } = renderError({ code: '404', message: 'Page not found.' });
-    return res.status(404).send(layout({ title, body, user: req.session.user }));
+    return res.status(404).send(layout({ title, body, user: req.session.user, csrf: req.session.csrf ?? '' }));
   }
   res.status(404).json({ ok: false, error: 'Not found' });
 }
