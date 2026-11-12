@@ -16,6 +16,7 @@ import { parseFeed, ParseError } from './lib/icalparse.js';
 import { createSyncEngine, SyncError, pairSemanticError } from './lib/sync.js';
 import { createIcloudCalDavClient, parseCaldavUrl } from './lib/caldav.js';
 import { createAlertServices } from './lib/alerts.js';
+import { resolveTargetLabels } from './lib/labels.js';
 import { normalizeEventFiltersInput } from './lib/filters.js';
 import { normalizeCopyMode } from './lib/copymode.js';
 import { makeSaveTagsHandler, makePairTagsHandler } from './lib/tags.js';
@@ -253,18 +254,21 @@ function googleState() {
   };
 }
 
-app.get('/', (req, res) => {
+app.get('/', async (req, res) => {
   // Dashboard organization inputs (render-only): the tag catalog, per-pair
-  // assignments, and the newest run detail per pair (drives the
-  // "ICS feed (auto-detected)" category label). The sync engine never reads
-  // tags; category derivation is pure render (lib/render.js).
+  // assignments, newest run detail per pair, and human-readable target labels
+  // (lib/labels.js). The sync engine never reads tags or labels; category and
+  // label derivation are pure presentation.
   const tags = db.listTags();
   const tagMap = db.tagMapForPairs();
   const lastRunDetails = db.lastRunDetailByPair();
+  const gclient = typeof currentGoogleClient === 'function' ? currentGoogleClient() : null;
+  const targetLabels = await resolveTargetLabels({ db, googleClient: gclient, pairs: db.listPairsWithStatus(), logger });
   const pairs = db.listPairsWithStatus().map((p) => ({
     ...p,
     tags: tagMap.get(Number(p.id)) ?? [],
     last_run_detail: lastRunDetails.get(Number(p.id)) ?? null,
+    target_label: targetLabels.get(String(p.id)) ?? null,
   }));
   page(req, res, 'Dashboard', { pairs, google: googleState(), tags },
     { msg: req.query.msg, err: req.query.err });
