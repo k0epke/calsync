@@ -76,7 +76,7 @@
       msg.textContent = data.calendars.length ? 'Pick a calendar:' : 'No event calendars found on this iCloud account.';
       list.innerHTML = data.calendars.map(function (c) {
         return '<div class="caldav-row"><b>' + escAdd(c.name) + '</b> ' +
-          '<button type="button" class="btn" data-fill="' + cfg.inputSelector + '" data-url="' + escAdd(c.caldavUrl) + '">' + cfg.useLabel + '</button></div>';
+          '<button type="button" class="btn" data-fill="' + escAdd(cfg.inputSelector) + '" data-url="' + escAdd(c.caldavUrl) + '">' + cfg.useLabel + '</button></div>';
       }).join('');
       list.querySelectorAll('button[data-fill]').forEach(function (b) {
         b.addEventListener('click', function () {
