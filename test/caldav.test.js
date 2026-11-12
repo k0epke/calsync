@@ -58,6 +58,11 @@ test('parseCaldavUrl: caldav:// maps to https, https hrefs accepted, junk reject
   );
 });
 
+test('parseCaldavUrl accepts iCloud shard subdomains', () => {
+  const u = parseCaldavUrl('caldav://p154-caldav.icloud.com/1719990123/calendars/home-ABCD-1234/');
+  assert.equal(u.host, 'p154-caldav.icloud.com');
+});
+
 test('icsUtc formats epoch ms as RFC 4791 ICS UTC and rejects junk', () => {
   assert.equal(icsUtc(Date.parse('2026-11-11T12:00:00Z')), '20261111T120000Z');
   assert.equal(icsUtc(0), '19700101T000000Z');
@@ -92,7 +97,7 @@ test('discoverCalendars: principal -> home-set -> depth-1 list, inbox/tasks skip
   assert.deepEqual(calls.map((c) => `${c.method} ${c.url} d=${c.depth}`), [
     'PROPFIND https://caldav.icloud.com/ d=0',
     'PROPFIND https://caldav.icloud.com/1719990123/principal/ d=0',
-    'PROPFIND https://caldav.icloud.com/1719990123/calendars/ d=1',
+    'PROPFIND https://p154-caldav.icloud.com/1719990123/calendars/ d=1',
   ], 'standard RFC 4791/6764 discovery chain');
   assert.match(calls[0].body, /<D:current-user-principal\/>/);
   assert.match(calls[1].body, /<C:calendar-home-set\/>/);
@@ -102,8 +107,8 @@ test('discoverCalendars: principal -> home-set -> depth-1 list, inbox/tasks skip
   assert.deepEqual(calendars.map((c) => c.name), ['Calendar', 'Home'],
     'home itself, scheduling inbox, trash and the VTODO-only Reminders collection must be skipped');
   assert.deepEqual(calendars.map((c) => c.caldavUrl), [
-    'caldav://caldav.icloud.com/1719990123/calendars/calendar/',
-    'caldav://caldav.icloud.com/1719990123/calendars/home-ABCD-1234/',
+    'caldav://p154-caldav.icloud.com/1719990123/calendars/calendar/',
+    'caldav://p154-caldav.icloud.com/1719990123/calendars/home-ABCD-1234/',
   ]);
 });
 

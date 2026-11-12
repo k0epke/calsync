@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <D:multistatus xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
   <D:response>
-    <D:href>https://caldav.icloud.com/1719990123/calendars/</D:href>
+    <D:href>https://p154-caldav.icloud.com/1719990123/calendars/</D:href>
     <D:propstat>
       <D:prop>
         <D:resourcetype><D:collection/></D:resourcetype>
@@ -11,7 +11,7 @@
     </D:propstat>
   </D:response>
   <D:response>
-    <D:href>https://caldav.icloud.com/1719990123/calendars/inbox/</D:href>
+    <D:href>https://p154-caldav.icloud.com/1719990123/calendars/inbox/</D:href>
     <D:propstat>
       <D:prop>
         <D:resourcetype><D:collection/><C:schedule-inbox/></D:resourcetype>
@@ -21,7 +21,7 @@
     </D:propstat>
   </D:response>
   <D:response>
-    <D:href>https://caldav.icloud.com/1719990123/calendars/trash/</D:href>
+    <D:href>https://p154-caldav.icloud.com/1719990123/calendars/trash/</D:href>
     <D:propstat>
       <D:prop>
         <D:resourcetype><D:collection/></D:resourcetype>
@@ -31,7 +31,7 @@
     </D:propstat>
   </D:response>
   <D:response>
-    <D:href>https://caldav.icloud.com/1719990123/calendars/reminders-E3F2-9876/</D:href>
+    <D:href>https://p154-caldav.icloud.com/1719990123/calendars/reminders-E3F2-9876/</D:href>
     <D:propstat>
       <D:prop>
         <D:resourcetype><D:collection/><D:calendar/></D:resourcetype>
@@ -44,7 +44,7 @@
     </D:propstat>
   </D:response>
   <D:response>
-    <D:href>https://caldav.icloud.com/1719990123/calendars/calendar/</D:href>
+    <D:href>https://p154-caldav.icloud.com/1719990123/calendars/calendar/</D:href>
     <D:propstat>
       <D:prop>
         <D:resourcetype><D:collection/><D:calendar/></D:resourcetype>
@@ -57,7 +57,7 @@
     </D:propstat>
   </D:response>
   <D:response>
-    <D:href>https://caldav.icloud.com/1719990123/calendars/home-ABCD-1234/</D:href>
+    <D:href>https://p154-caldav.icloud.com/1719990123/calendars/home-ABCD-1234/</D:href>
     <D:propstat>
       <D:prop>
         <D:resourcetype><D:collection/><D:calendar/></D:resourcetype>

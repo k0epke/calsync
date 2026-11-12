@@ -5,7 +5,7 @@
     <D:propstat>
       <D:prop>
         <C:calendar-home-set>
-          <D:href>https://caldav.icloud.com/1719990123/calendars/</D:href>
+          <D:href>https://p154-caldav.icloud.com/1719990123/calendars/</D:href>
         </C:calendar-home-set>
       </D:prop>
       <D:status>HTTP/1.1 200 OK</D:status>
