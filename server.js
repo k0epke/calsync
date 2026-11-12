@@ -15,6 +15,9 @@ import { planSync } from './lib/planner.js';
 import { parseFeed, ParseError } from './lib/icalparse.js';
 import { createSyncEngine, SyncError, pairSemanticError } from './lib/sync.js';
 import { createIcloudCalDavClient, parseCaldavUrl } from './lib/caldav.js';
+import { createAlertServices } from './lib/alerts.js';
+import { normalizeEventFiltersInput } from './lib/filters.js';
+import { normalizeCopyMode } from './lib/copymode.js';
 import { Scheduler, SYNC_INTERVAL_CHOICES } from './lib/scheduler.js';
 import {
   createOAuthClient, authUrlFor, GoogleCalendarClient, google as googleClientLib,
@@ -95,8 +98,17 @@ function currentIcloudClient() {
     logger,
     timeoutMs: config.fetchTimeoutMs,
     maxBytes: config.maxFeedBytes,
+    // Config flag (default OFF): accept any https CalDAV host, not just
+    // iCloud. Credentials never travel in URLs either way (parseCaldavUrl
+    // rejects those) and all redaction stays in place.
+    allowAnyHost: config.caldavAllowAnyHost,
   });
 }
+
+// --- Telegram failure alerts + daily digest ---------------------------------
+// Both channels are disabled unless ALERT_TELEGRAM_TOKEN +
+// ALERT_TELEGRAM_CHAT_ID are set (see lib/alerts.js + README).
+const alertServices = createAlertServices({ config, db, logger });
 
 // --- sync engine + scheduler ---------------------------------------------------
 const engine = createSyncEngine({
@@ -108,6 +120,7 @@ const engine = createSyncEngine({
   fetchFeedImpl: fetchFeed,
   parseFeedImpl: (text) => parseFeed(text),
   planSyncImpl: planSync,
+  alerts: alertServices,
 });
 
 const scheduler = new Scheduler({ db, config, runPair: engine.runPair, logger });
@@ -394,6 +407,35 @@ async function resolvePairPayload(req, existing = null) {
   };
   const conflict = pairSemanticError(fields);
   if (conflict) return { error: conflict };
+
+  // --- Per-pair event filters (optional; empty = no filter) ---
+  // Dashboard sends two comma-separated keyword lists. Validation happens
+  // here AND at the db boundary (storedFiltersJson) so malformed values
+  // fail with a clear message at save time.
+  const parseKeywordCsv = (raw, label) => {
+    if (raw == null) return null;
+    const s = String(raw);
+    if (!s.trim()) return null;
+    const arr = s.split(',').map((k) => k.trim()).filter(Boolean);
+    if (!arr.length) return null;
+    if (arr.some((k) => k.length > 200)) return { error: `${label} keyword is longer than 200 characters.` };
+    return arr;
+  };
+  const includeRaw = parseKeywordCsv(req.body?.filters_include, 'Include keywords');
+  if (includeRaw?.error) return { error: includeRaw.error };
+  const excludeRaw = parseKeywordCsv(req.body?.filters_exclude, 'Exclude keywords');
+  if (excludeRaw?.error) return { error: excludeRaw.error };
+  try {
+    fields.filters = (includeRaw || excludeRaw)
+      ? normalizeEventFiltersInput({ include: includeRaw ?? null, exclude: excludeRaw ?? null })
+      : null;
+  } catch (err) {
+    return { error: err.message };
+  }
+
+  // --- Privacy copy mode ('full'|'busy'|'generic', junk normalizes) ---
+  fields.copy_mode = normalizeCopyMode(String(req.body?.copy_mode ?? '').trim());
+
   return { fields };
 }
 
@@ -502,6 +544,7 @@ const server = app.listen(config.port, config.host, () => {
   logger.info('GET /healthz is public; everything else requires login.');
   logger.info(`SQLite database: ${config.dbPath}`);
   scheduler.startAll();
+  alertServices.startDailyDigest(); // no-op (never scheduled) without alert credentials
 });
 
 let shuttingDown = false;
@@ -510,6 +553,7 @@ function shutdown(signal) {
   shuttingDown = true;
   logger.info(`${signal} received — shutting down`);
   scheduler.stopAll();
+  alertServices.stopAll();
   server.close(() => {
     try { db.close(); } catch { /* ignore */ }
     logger.info('Shutdown complete');

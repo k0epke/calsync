@@ -25,6 +25,20 @@ Google Calendar API v3, with a small authenticated web dashboard.
 - **iCloud (CalDAV) targets (two-way):** any source type (url / caldav / google) can target an
   iCloud calendar - skip-unchanged against the LIVE remote copy via canonical hashes, PUT/DELETE
   per UID with If-Match, and its own deletion sweep (see the two-way section below).
+- **Failure alerts + daily digest (optional Telegram):** one alert per pair on `error`/`partial`
+  runs (max one per pair per 30 minutes; `success` never alerts) plus a daily digest cron at
+  `ALERT_DIGEST_HOUR` (America/Chicago). Disabled entirely unless `ALERT_TELEGRAM_TOKEN` and
+  `ALERT_TELEGRAM_CHAT_ID` are set (see "Failure alerts + daily digest" below).
+- **Per-pair event filters:** optional include/exclude keyword lists applied to the SOURCE event
+  list after the fetch and before windowing/planning, for every source type. Flipping filters
+  prunes previously imported copies via the normal deletion sweep (see "Per-pair event filters" below).
+- **Privacy copy modes (per pair):** write-time masking in BOTH target adapters - `full` (default),
+  `busy` (summary "Busy", no description/location), `generic` (summary = pair name). Hashes are
+  computed after the transform, so masked writes reach a zero-write steady state like any other pair
+  (see "Privacy copy modes" below).
+- **Generic CalDAV hosts (opt-in, default OFF):** `CALDAV_ALLOW_ANY_HOST=true` accepts any https
+  CalDAV host instead of iCloud-only. Credentials still never travel in URLs and redaction still
+  applies everywhere (see "Generic CalDAV hosts" below).
 - **Per-pair sync into a dedicated Google calendar** using `calendar.events.import` �
   an upsert keyed by `iCalUID`, which makes every run idempotent. Recurrence
   (RRULE/RDATE/EXDATE lines) is preserved; Google expands occurrences.
@@ -305,6 +319,106 @@ its target - pre-existing content in either side survives untouched.
 - SEQUENCE drift converges: a server-side renumbering (Google or Apple) can
   cost exactly one repair write per affected event, then zero-writes.
 
+## Failure alerts + daily digest (optional Telegram)
+
+Both alert channels are OFF unless `ALERT_TELEGRAM_TOKEN` and
+`ALERT_TELEGRAM_CHAT_ID` are set in `.env`. With them set:
+
+- **Run failure hook.** After every run finalizes, `error` and `partial`
+  runs send ONE message:
+
+  `[CalSync] pair "<name>" (trigger) finished <status>: imported X, deleted Y, failed Z - <first error line, truncated to 300 chars>`
+
+  `success` runs never alert. Bursts are capped in memory: at most one alert
+  per pair per 30 minutes, so flapping sources cannot flood the chat.
+- **Daily digest.** A node-cron job fires daily at minute 0 of hour
+  `ALERT_DIGEST_HOUR` (0-23, default 8) in America/Chicago:
+
+  `CalSync daily digest: <enabled pairs> pairs - <N> success, <M> failed in last 24h; last 10 runs: <one-line statuses>`
+
+  It is a single send per calendar day (a defensive day-guard keeps it that
+  way even if the callback fires twice); with no runs in the window it says
+  `last 10 runs: none`.
+- **Delivery is one attempt, never thrown.** `sendTelegramAlert` posts to
+  `https://api.telegram.org/bot<token>/sendMessage` with a 10s timeout,
+  exactly once. Failures are logged, not raised - a broken Telegram setup
+  must never make sync runs worse. The token, chat id and the full
+  `bot<token>` URL prefix are scrubbed from every error and log line.
+- The alert hook lives in the sync engine (`lib/sync.js` accepts an `alerts`
+  service) and the digest cron in `lib/alerts.js`; both are wired in
+  `server.js` and stop cleanly on shutdown.
+
+## Per-pair event filters
+
+Each pair can carry an optional keyword filter, edited from the dashboard
+("Include keywords" / "Exclude keywords", comma-separated) and stored in
+`pairs.filters` as JSON `{"include": ["kw"], "exclude": ["kw"]}`. `NULL` or
+`{}` means no filter. Malformed values fail with a clear validation error at
+save time.
+
+- **Semantics.** A source event is kept when ((no include list) OR any
+  include keyword is a case-insensitive SUBSTRING of the event summary) AND
+  ((no exclude list) OR no exclude keyword is a case-insensitive substring
+  of the summary). Keywords are trimmed; matching is case-insensitive.
+- **Order of operations (pinned + tested).** source fetch -> filters ->
+  window/planner -> write (copy-mode transform) -> hash-after-transform
+  skip logic -> write/delete sweep. Filters apply to the SOURCE event list
+  for every source type (url, caldav, google); targets receive whatever the
+  planner emits - there is no separate target-side filtering.
+- **Deletion interaction.** The deletion planner operates on the FILTERED
+  source snapshot: adding an exclude keyword that matches previously
+  imported events prunes those copies from the target on the next run via
+  the normal deletion sweep (only CalSync-imported UIDs are ever touched).
+- **Visibility.** Filtered pairs show `inc:`/`exc:` chips on the dashboard,
+  and each run records how many source events the filters dropped in its
+  run-log detail (`filtered`).
+- A stored `filters` value that no longer parses (e.g. edited by hand)
+  degrades to "no filter this run" with a run warning instead of failing
+  syncs.
+
+## Privacy copy modes (per pair)
+
+Every pair has a **Copy details** setting in the dashboard (stored in
+`pairs.copy_mode`, default `full`):
+
+- **Full details** - behavior exactly as before (byte-identical).
+- **Busy only** - events are written with summary `Busy`; description and
+  location are stripped. Times, all-day flags, recurrence, status and
+  sequence are preserved.
+- **Generic title** - events are written with the pair name as the summary;
+  description and location stripped, times preserved.
+
+The transform is applied **at write time, in both target adapters** (Google
+`events.import` and CalDAV PUT), never to the source snapshot. The critical
+property is **hash-after-transform**: the content hash used for
+skip-unchanged is computed from the TRANSFORMED event, i.e. exactly the
+bytes CalSync wrote. On the Google target the stored per-UID hash matches
+the transformed hash on every later run; on the CalDAV target the live
+remote copy parses back equal to the transformed canonical hash. Either way
+a masked pair reaches the same zero-write steady state as a full-detail
+pair - no rewrite churn from masking. Because the mask is deterministic,
+changing a pair's copy mode costs exactly one repair write per event, then
+converges again.
+
+## Generic CalDAV hosts (CALDAV_ALLOW_ANY_HOST)
+
+By default the CalDAV client speaks only iCloud CalDAV
+(`caldav.icloud.com` and its `pNN-caldav.icloud.com` shards) - the Apple
+credentials in `.env` only ever travel to Apple. Setting
+`CALDAV_ALLOW_ANY_HOST=true` in `.env` makes every CalDAV client accept ANY
+https CalDAV host, so pairs may point at self-hosted servers (Nextcloud,
+Radicale, Baikal, ...). The option is passed from config into every client
+construction (source reads AND CalDAV targets).
+
+**Security tradeoff:** this flag decides where your app-specific-password
+(Basic auth) header is sent - the pair URL becomes the credential audience.
+With generic hosts enabled, a mistake or tampering in a pair URL would send
+your stored credentials to that host. Keep it OFF unless you actually
+self-host a trusted CalDAV server; keep it ON only on deployments where you
+control every pair URL. What still always holds, flag or not: https-only
+URLs (`caldav://` is just an alias for `https://`), credentials never
+accepted inside pair URLs, and full credential redaction in errors/logs.
+
 ## Setup (Ubuntu / Debian)
 
 ```bash
@@ -378,6 +492,9 @@ On **Node 22.x only**, run the service with `--experimental-sqlite`
 | `WINDOW_PAST_DAYS` / `WINDOW_FUTURE_DAYS` | `30` / `365` | Event import window |
 | `LOGIN_MAX_ATTEMPTS` / `LOGIN_WINDOW_MINUTES` | `8` / `15` | Login rate limiting |
 | `ICLOUD_APPLE_ID` / `ICLOUD_APP_PASSWORD` | - | iCloud CalDAV source credentials (Apple ID + app-specific password from appleid.apple.com); empty disables iCloud sources |
+| `ALERT_TELEGRAM_TOKEN` / `ALERT_TELEGRAM_CHAT_ID` | - | Telegram bot token + chat id for failure alerts and the daily digest; both empty disables all alerting |
+| `ALERT_DIGEST_HOUR` | `8` | Daily digest hour (0-23) in America/Chicago; clamped to range, digest disabled without alert credentials |
+| `CALDAV_ALLOW_ANY_HOST` | `false` | Opt-in: accept any https CalDAV host (self-hosted servers) instead of iCloud-only; see "Generic CalDAV hosts" |
 
 ## Google push algorithm (per sync run)
 

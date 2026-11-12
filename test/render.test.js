@@ -101,3 +101,68 @@ test('pair form offers Google sources and CalDAV targets (radio + href input)', 
   assert.match(body2, /name="target_type" value="google"[^>]*checked/, 'google target pre-selected (default)');
   assert.doesNotMatch(body2, /name="target_url"[^>]*required/, 'google targets never require the caldav href');
 });
+
+// --- tier 1 dashboard surface: filter chips + copy modes -------------------
+
+test('dashboard rows show filter chips when filters are set (and nothing when unset/junk)', () => {
+  const base = { id: 1, name: 'P', feed_url: 'https://f/x.ics', calendar_id: 'c', interval_minutes: 360, enabled: 1, synced_count: 0, source_type: 'url' };
+  const { body } = renderDashboard({
+    pairs: [
+      { ...base, filters: JSON.stringify({ include: ['standup', 'planning'], exclude: ['gym "leg" day'] }) },
+      { ...base, id: 2, name: 'Q', filters: null },
+      { ...base, id: 3, name: 'R', filters: 'not json at all' },
+      { ...base, id: 4, name: 'S', filters: JSON.stringify({ exclude: ['lunch'] }) },
+    ],
+    google: { configured: true, connected: true, email: 'x@example.com', redirectUrl: 'https://kalsync.koepke.tech/oauth/callback' },
+    csrf: 'TOK',
+  });
+  const row1 = body.split('<tr>').find((r) => r.includes('>P</strong>'));
+  assert.match(row1, />inc: standup, planning<\/span>/, 'include chips render joined keywords');
+  assert.match(row1, />exc: gym &quot;leg&quot; day<\/span>/, 'exclude chips render escaped keywords');
+  const row2 = body.split('<tr>').find((r) => r.includes('>Q</strong>'));
+  assert.ok(!row2.includes('>inc:'), 'no filter chips without filters');
+  const row3 = body.split('<tr>').find((r) => r.includes('>R</strong>'));
+  assert.ok(!row3.includes('>inc:') && !row3.includes('>exc:'), 'junk stored JSON renders no chips (never throws)');
+  const row4 = body.split('<tr>').find((r) => r.includes('>S</strong>'));
+  assert.ok(!row4.includes('>inc:') && row4.includes('>exc: lunch</span>'), 'exclude-only pairs show only exc');
+});
+
+test('dashboard rows surface the copy mode chip, full mode stays chipless', () => {
+  const base = { id: 1, name: 'P', feed_url: 'https://f/x.ics', calendar_id: 'c', interval_minutes: 360, enabled: 1, synced_count: 0, source_type: 'url' };
+  const { body } = renderDashboard({
+    pairs: [
+      { ...base, copy_mode: 'busy' },
+      { ...base, id: 2, name: 'Q', copy_mode: 'generic' },
+      { ...base, id: 3, name: 'R', copy_mode: 'full' },
+      { ...base, id: 4, name: 'S' },
+    ],
+    google: { configured: true, connected: true, email: 'x@example.com', redirectUrl: 'https://kalsync.koepke.tech/oauth/callback' },
+    csrf: 'TOK',
+  });
+  const rowOf = (name) => body.split('<tr>').find((r) => r.includes(`>${name}</strong>`));
+  assert.match(rowOf('P'), />busy only<\/span>/); // ASCII-safe label
+  assert.match(rowOf('Q'), />generic title<\/span>/);
+  assert.ok(!rowOf('R').includes('>busy only') && !rowOf('R').includes('>generic title'), 'full = chipless (legacy rows too)');
+  assert.ok(!rowOf('S').includes('>busy only'));
+});
+
+test('pair form offers include/exclude keyword inputs and the Copy details select', () => {
+  const filtered = {
+    id: 9, name: 'P', feed_url: 'https://x/y.ics', source_type: 'url', calendar_id: 'c1',
+    interval_minutes: 60, target_type: 'google',
+    filters: JSON.stringify({ include: ['standup'], exclude: ['gym'] }), copy_mode: 'busy',
+  };
+  const { body } = renderPairForm({ pair: filtered, calendars: [], googleConnected: true, googleError: null, csrf: 'T' });
+  assert.match(body, /<label>Include keywords \(comma-separated\)<\/label>/);
+  assert.match(body, /<label>Exclude keywords \(comma-separated\)<\/label>/);
+  assert.match(body, /name="filters_include"[^>]*value="standup"/, 'include input prefilled from stored JSON');
+  assert.match(body, /name="filters_exclude"[^>]*value="gym"/, 'exclude input prefilled from stored JSON');
+  assert.match(body, /<select name="copy_mode">/);
+  assert.match(body, /<option value="full"[^>]*>Full details<\/option>/, 'ASCII-safe label');
+  assert.match(body, /<option value="busy" selected>Busy only<\/option>/, 'current mode pre-selected');
+  assert.match(body, /<option value="generic"[^>]*>Generic title<\/option>/);
+
+  const fresh = renderPairForm({ pair: null, calendars: [], googleConnected: true, googleError: null, csrf: 'T' }).body;
+  assert.match(fresh, /<option value="full" selected>Full details<\/option>/, 'new pairs default to Full details');
+  assert.doesNotMatch(fresh, /name="filters_include"[^>]*value="[^"]+"/, 'new pairs start with empty keyword inputs');
+});

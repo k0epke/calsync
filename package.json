@@ -10,7 +10,7 @@
   },
   "scripts": {
     "start": "node server.js",
-    "test": "node --test test/parse.test.js test/recurrence.test.js test/planner.test.js test/url.test.js test/caldav.test.js test/caldav-target.test.js test/twoway.test.js test/migrations.test.js test/sync.test.js test/render.test.js",
+    "test": "node --test test/parse.test.js test/recurrence.test.js test/planner.test.js test/url.test.js test/caldav.test.js test/caldav-target.test.js test/twoway.test.js test/migrations.test.js test/sync.test.js test/render.test.js test/filters-copymode.test.js test/alerts.test.js test/anyhost.test.js",
     "inspect": "node bin/inspect.js"
   },
   "dependencies": {
