@@ -46,15 +46,15 @@ function printEventList(events) {
 if (args[0] === '--caldav') {
   loadEnvFile(path.join(ROOT_DIR, '.env'));
   const config = loadConfig();
-  const { ICLOUD_APPLE_ID, ICLOUD_APP_PASSWORD } = config;
+  const { icloudAppleId, icloudAppPassword } = config;
   if (!ICLOUD_APPLE_ID || !ICLOUD_APP_PASSWORD) {
     console.error('Missing iCloud credentials: set ICLOUD_APPLE_ID and ICLOUD_APP_PASSWORD in .env');
     console.error('(Apple ID username + app-specific password from appleid.apple.com; see README).');
     process.exit(2);
   }
   const client = createIcloudCalDavClient({
-    username: ICLOUD_APPLE_ID,
-    appPassword: ICLOUD_APP_PASSWORD,
+    username: icloudAppleId,
+    appPassword: icloudAppPassword,
     logger: consoleLogger,
     timeoutMs: config.fetchTimeoutMs,
     maxBytes: config.maxFeedBytes,
