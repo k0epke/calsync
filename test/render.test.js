@@ -24,3 +24,22 @@ test('layout tolerates missing csrf (empty token rendered)', () => {
   const html = layout({ title: 't', body: '', user: 'admin' });
   assert.match(html, /name="_csrf" value=""/);
 });
+
+test('dashboard marks CalDAV pairs with an iCloud chip, url pairs without', () => {
+  const base = {
+    id: 1, name: 'P', feed_url: 'caldav://caldav.icloud.com/1/calendars/a/', calendar_id: 'c',
+    interval_minutes: 360, enabled: 1, synced_count: 0,
+  };
+  const { body } = renderDashboard({
+    pairs: [
+      { ...base, source_type: 'caldav' },
+      { ...base, id: 2, name: 'URL pair', feed_url: 'https://feed.example/x.ics', source_type: 'url' },
+    ],
+    google: { configured: true, connected: true, email: 'x@example.com', redirectUrl: 'https://kalsync.koepke.tech/oauth/callback' },
+    csrf: 'TOK',
+  });
+  assert.match(body, /<span class="chip" title="iCloud CalDAV source \(read-only\)">iCloud<\/span>/);
+  const urlRow = body.split('<tr>').find((r) => r.includes('https://feed.example/x.ics'));
+  assert.ok(urlRow, 'the url pair row rendered');
+  assert.ok(!urlRow.includes('>iCloud</span>'), 'url pairs must not carry the iCloud chip');
+});

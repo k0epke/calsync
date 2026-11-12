@@ -16,7 +16,7 @@ import { FIXED_NOW_MS, icsFor, veventFor, makeGoogleMock } from './helpers.js';
 
 const NOW_ISO = '2026-11-11T12:00:00.000Z';
 
-function makeEngine(db, googleHolder, { fetchFeedImpl } = {}) {
+function makeEngine(db, googleHolder, { fetchFeedImpl, icloudFactory } = {}) {
   return createSyncEngine({
     db,
     config: {
@@ -28,6 +28,7 @@ function makeEngine(db, googleHolder, { fetchFeedImpl } = {}) {
     },
     logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} },
     googleFactory: () => googleHolder.client,
+    icloudFactory: icloudFactory ?? (() => null),
     fetchFeedImpl: fetchFeedImpl ?? (async () => ({ text: FEED1, finalUrl: 'https://feed.example/cal.ics', status: 200 })),
     parseFeedImpl: parseFeed,
     planSyncImpl: planSync,
@@ -510,4 +511,151 @@ test('cron: live set (pair ids 2..9 at 15/30-min intervals) has pairwise disjoin
   }
   // every sub-hourly pair fires exactly 60/interval times per hour
   anchorSets.forEach((set, idx) => assert.equal(set.length, 60 / live[idx].interval));
+});
+
+// --- CalDAV (iCloud) sources: same pipeline, different fetch -------------------
+
+// Stateful fake iCloud CalDAV client: fetchEvents returns successive snapshot
+// objects ({ events, warnings?, calendarName?, vtimezoneStrings? }) run by
+// run, mirroring the real client's REPORT-per-run contract.
+function makeIcloudMockClient({ snapshots }) {
+  const calls = { fetches: [] };
+  let i = 0;
+  const client = {
+    async fetchEvents(feedUrl, { start, end }) {
+      const snap = snapshots[Math.min(i, snapshots.length - 1)];
+      calls.fetches.push({ feedUrl: String(feedUrl), start, end, run: i });
+      i += 1;
+      return {
+        events: snap.events,
+        warnings: snap.warnings ?? [],
+        calendarName: snap.calendarName ?? null,
+        vtimezoneStrings: snap.vtimezoneStrings ?? [],
+        href: String(feedUrl),
+      };
+    },
+  };
+  return { client, calls };
+}
+
+const CALDAV_URL = 'caldav://caldav.icloud.com/1719990123/calendars/home-ABCD-1234/';
+const eventsOf = (text) => parseFeed(text).events;
+
+test('CalDAV source pair imports through the normal pipeline and receives the sync window', async () => {
+  const db = await openDatabase(':memory:');
+  const pair = db.createPair({
+    name: 'iCloud', feed_url: CALDAV_URL, calendar_id: 'cal-target', interval_minutes: 360, source_type: 'caldav',
+  });
+  const holder = makeGoogleMock();
+  const caldav = makeIcloudMockClient({ snapshots: [{ events: eventsOf(FEED1) }] });
+  const engine = makeEngine(db, holder, { icloudFactory: () => caldav.client });
+  const result = await engine.runPair(pair.id, { trigger: 'manual' });
+
+  assert.equal(result.status, 'success');
+  assert.equal(result.log.fetched, 2);
+  assert.deepEqual(holder.calls.imports.map(([, g]) => g.iCalUID).sort(), ['evt-a', 'evt-b']);
+  assert.deepEqual(db.listSyncedUids(pair.id).sort(), ['evt-a', 'evt-b']);
+  assert.equal(holder.calls.listReads.length, 1, 'same snapshot-read-before-write flow as ICS pairs');
+  // The stored feed_url is passed through and the REPORT window is the exact
+  // [now-30d, now+365d] window the engine also filters with.
+  assert.deepEqual(caldav.calls.fetches, [{ feedUrl: CALDAV_URL, start: FIXED_NOW_MS - 30 * 86_400_000, end: FIXED_NOW_MS + 365 * 86_400_000, run: 0 }]);
+  db.close();
+});
+
+test('CalDAV hash-skip: an identical second snapshot imports zero and marks all unchanged', async () => {
+  const db = await openDatabase(':memory:');
+  const pair = db.createPair({
+    name: 'iCloud', feed_url: CALDAV_URL, calendar_id: 'cal-target', interval_minutes: 360, source_type: 'caldav',
+  });
+  const holder = makeGoogleMock();
+  const caldav = makeIcloudMockClient({ snapshots: [{ events: eventsOf(FEED1) }] });
+  const engine = makeEngine(db, holder, { icloudFactory: () => caldav.client });
+  await engine.runPair(pair.id, { trigger: 'initial' });
+  assert.equal(holder.calls.imports.length, 2);
+
+  const result = await engine.runPair(pair.id, { trigger: 'scheduled' });
+  assert.equal(result.status, 'success');
+  assert.equal(result.log.imported, 0);
+  assert.equal(result.log.unchanged, 2, 'content hashes come from the SAME normalized event model');
+  assert.equal(result.log.deleted, 0);
+  assert.equal(holder.calls.imports.length, 2, 'no new writes on the unchanged snapshot');
+  assert.equal(holder.calls.listReads.length, 2, 'exactly one list read per run');
+  db.close();
+});
+
+test('CalDAV missing/changed snapshots trigger the same deletions and re-imports as ICS feeds', async () => {
+  const db = await openDatabase(':memory:');
+  const pair = db.createPair({
+    name: 'iCloud', feed_url: CALDAV_URL, calendar_id: 'cal-target', interval_minutes: 360, source_type: 'caldav',
+  });
+  const holder = makeGoogleMock();
+  const caldav = makeIcloudMockClient({ snapshots: [{ events: eventsOf(FEED1) }, { events: eventsOf(FEED2) }] });
+  const engine = makeEngine(db, holder, { icloudFactory: () => caldav.client });
+  await engine.runPair(pair.id, { trigger: 'initial' });
+
+  const result = await engine.runPair(pair.id, { trigger: 'scheduled' });
+  assert.equal(result.status, 'success');
+  assert.deepEqual(holder.calls.deletes, [['cal-target', 'evt-b']], 'event gone from the REPORT snapshot gets the usual deletion');
+  assert.deepEqual(holder.calls.imports.slice(2).map(([, g]) => g.iCalUID).sort(), ['evt-a', 'evt-c']);
+  assert.deepEqual(db.listSyncedUids(pair.id).sort(), ['evt-a', 'evt-c']);
+  db.close();
+});
+
+test('CalDAV pair without configured iCloud credentials fails cleanly before any fetch', async () => {
+  const db = await openDatabase(':memory:');
+  const pair = db.createPair({
+    name: 'iCloud', feed_url: CALDAV_URL, calendar_id: 'cal-target', interval_minutes: 360, source_type: 'caldav',
+  });
+  const holder = makeGoogleMock();
+  const engine = makeEngine(db, holder); // default icloudFactory returns null
+  const result = await engine.runPair(pair.id, { trigger: 'manual' });
+  assert.equal(result.status, 'error');
+  assert.match(result.error, /iCloud \(CalDAV\) source not configured/);
+  assert.match(result.error, /ICLOUD_APPLE_ID/);
+  assert.equal(holder.calls.imports.length, 0, 'no Google mutations without a source client');
+  const status = db.getStatus(pair.id);
+  assert.equal(status.last_status, 'error');
+  db.close();
+});
+
+test('CalDAV REPORT failure (auth 401) aborts the run touching nothing in Google', async () => {
+  const db = await openDatabase(':memory:');
+  const pair = db.createPair({
+    name: 'iCloud', feed_url: CALDAV_URL, calendar_id: 'cal-target', interval_minutes: 360, source_type: 'caldav',
+  });
+  db.upsertSyncedEvent(pair.id, 'evt-stale', NOW_ISO); // would be deleted on a successful run
+  const holder = makeGoogleMock({ seedEvents: [{ iCalUID: 'evt-stale', id: 'seed-stale' }] });
+  const caldav = {
+    client: {
+      async fetchEvents() {
+        const err = new Error('CalDAV REPORT on https://caldav.icloud.com/1/calendars/home/ failed with HTTP 401 - re-issue the app-specific password');
+        err.status = 401;
+        throw err;
+      },
+    },
+  };
+  const engine = makeEngine(db, holder, { icloudFactory: () => caldav.client });
+  const result = await engine.runPair(pair.id, { trigger: 'scheduled' });
+  assert.equal(result.status, 'error');
+  assert.match(result.error, /HTTP 401/);
+  assert.equal(holder.calls.imports.length, 0);
+  assert.equal(holder.calls.deletes.length, 0, 'a dead source can never drive deletions');
+  assert.deepEqual(db.listSyncedUids(pair.id), ['evt-stale'], 'bookkeeping untouched on source failure');
+  db.close();
+});
+
+test('url pairs ignore the CalDAV branch (source_type default keeps legacy behavior)', async () => {
+  const db = await openDatabase(':memory:');
+  const pair = db.createPair({ name: 'url', feed_url: 'https://feed.example/cal.ics', calendar_id: 'cal-target', interval_minutes: 360 });
+  const holder = makeGoogleMock();
+  let fetches = 0;
+  const engine = makeEngine(db, holder, {
+    icloudFactory: () => { throw new Error('caldav factory must not be called'); },
+    fetchFeedImpl: async () => { fetches += 1; return { text: FEED1, finalUrl: 'x', status: 200 }; },
+  });
+  const result = await engine.runPair(pair.id, { trigger: 'manual' });
+  assert.equal(result.status, 'success');
+  assert.equal(fetches, 1);
+  assert.equal(holder.calls.imports.length, 2);
+  db.close();
 });

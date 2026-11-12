@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<D:multistatus xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+  <D:response>
+    <D:href>https://caldav.icloud.com/1719990123/calendars/home-ABCD-1234/standup.ics</D:href>
+    <D:propstat>
+      <D:prop>
+        <D:getetag>"sta-0001"</D:getetag>
+        <C:calendar-data><![CDATA[BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//CalSync Test//EN
+BEGIN:VEVENT
+UID:standup-0001@icloud
+DTSTAMP:20261101T000000Z
+DTSTART:20261115T090000Z
+DTEND:20261115T093000Z
+SUMMARY:Standup
+STATUS:CONFIRMED
+END:VEVENT
+END:VCALENDAR]]></C:calendar-data>
+      </D:prop>
+      <D:status>HTTP/1.1 200 OK</D:status>
+    </D:propstat>
+  </D:response>
+  <D:response>
+    <D:href>https://caldav.icloud.com/1719990123/calendars/home-ABCD-1234/review.ics</D:href>
+    <D:propstat>
+      <D:prop>
+        <D:getetag>"rev-0002"</D:getetag>
+        <C:calendar-data>BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//CalSync Test//EN
+BEGIN:VEVENT
+UID:review-0002@icloud
+DTSTAMP:20261101T000000Z
+DTSTART:20261201T140000Z
+DTEND:20261201T150000Z
+SUMMARY:Q&amp;A session
+STATUS:CONFIRMED
+END:VEVENT
+END:VCALENDAR</C:calendar-data>
+      </D:prop>
+      <D:status>HTTP/1.1 200 OK</D:status>
+    </D:propstat>
+  </D:response>
+  <D:response>
+    <D:href>https://caldav.icloud.com/1719990123/calendars/home-ABCD-1234/series.ics</D:href>
+    <D:propstat>
+      <D:prop>
+        <D:getetag>"ser-0003"</D:getetag>
+        <C:calendar-data><![CDATA[BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//CalSync Test//EN
+BEGIN:VEVENT
+UID:series-0003@icloud
+DTSTAMP:20261101T000000Z
+DTSTART:20261116T090000Z
+DTEND:20261116T100000Z
+RRULE:FREQ=WEEKLY;BYDAY=MO
+SUMMARY:Weekly sync
+STATUS:CONFIRMED
+END:VEVENT
+END:VCALENDAR]]></C:calendar-data>
+      </D:prop>
+      <D:status>HTTP/1.1 200 OK</D:status>
+    </D:propstat>
+  </D:response>
+  <D:response>
+    <D:href>https://caldav.icloud.com/1719990123/calendars/home-ABCD-1234/cancelled.ics</D:href>
+    <D:propstat>
+      <D:prop>
+        <D:getetag>"can-0004"</D:getetag>
+        <C:calendar-data><![CDATA[BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//CalSync Test//EN
+BEGIN:VEVENT
+UID:cancelled-0004@icloud
+DTSTAMP:20261101T000000Z
+DTSTART:20261117T080000Z
+DTEND:20261117T090000Z
+SUMMARY:Cancelled one
+STATUS:CANCELLED
+END:VEVENT
+END:VCALENDAR]]></C:calendar-data>
+      </D:prop>
+      <D:status>HTTP/1.1 200 OK</D:status>
+    </D:propstat>
+  </D:response>
+  <D:response>
+    <D:href>https://caldav.icloud.com/1719990123/calendars/home-ABCD-1234/gone.ics</D:href>
+    <D:propstat>
+      <D:prop>
+        <D:getetag>"gone-0005"</D:getetag>
+      </D:prop>
+      <D:status>HTTP/1.1 404 Not Found</D:status>
+    </D:propstat>
+  </D:response>
+</D:multistatus>

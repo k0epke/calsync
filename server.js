@@ -14,6 +14,7 @@ import { fetchFeed, normalizeFeedUrl } from './lib/fetchfeed.js';
 import { planSync } from './lib/planner.js';
 import { parseFeed, ParseError } from './lib/icalparse.js';
 import { createSyncEngine, SyncError } from './lib/sync.js';
+import { createIcloudCalDavClient, parseCaldavUrl } from './lib/caldav.js';
 import { Scheduler, SYNC_INTERVAL_CHOICES } from './lib/scheduler.js';
 import { createOAuthClient, authUrlFor, GoogleCalendarClient, google as googleClientLib } from './lib/google.js';
 import { renderLogin, renderDashboard, renderPairForm, renderRuns, renderError, layout, esc } from './lib/render.js';
@@ -71,12 +72,36 @@ function currentGoogleClient() {
   return new GoogleCalendarClient(oc, { logger });
 }
 
+// --- iCloud (CalDAV) source account ----------------------------------------------
+// Env wiring only in this build: ICLOUD_APPLE_ID + ICLOUD_APP_PASSWORD (an
+// app-specific password). The single icloud_accounts row follows the
+// google_accounts pattern; env wins on every boot so the DB stays in sync
+// with .env. Passwords are never logged and never rendered.
+if (config.icloudAppleId && config.icloudAppPassword) {
+  db.setIcloudAccount({ username: config.icloudAppleId, app_password: config.icloudAppPassword });
+  logger.info(`iCloud CalDAV source account configured for "${config.icloudAppleId}".`);
+}
+
+function currentIcloudClient() {
+  if (!config.icloudAppleId || !config.icloudAppPassword) return null;
+  const account = db.getIcloudAccount();
+  if (!account?.username || !account?.app_password) return null;
+  return createIcloudCalDavClient({
+    username: account.username,
+    appPassword: account.app_password,
+    logger,
+    timeoutMs: config.fetchTimeoutMs,
+    maxBytes: config.maxFeedBytes,
+  });
+}
+
 // --- sync engine + scheduler ---------------------------------------------------
 const engine = createSyncEngine({
   db,
   config,
   logger,
   googleFactory: currentGoogleClient,
+  icloudFactory: currentIcloudClient,
   fetchFeedImpl: fetchFeed,
   parseFeedImpl: (text) => parseFeed(text),
   planSyncImpl: planSync,
@@ -279,13 +304,26 @@ async function resolvePairPayload(req, existing = null) {
   const name = String(req.body?.name ?? '').trim();
   const feedUrlRaw = String(req.body?.feed_url ?? '').trim();
   const interval = Number(req.body?.interval_minutes ?? 0);
+  const sourceTypeRaw = String(req.body?.source_type ?? '').trim();
+  if (!['url', 'caldav'].includes(sourceTypeRaw || 'url')) {
+    return { error: 'Source type must be "url" or "caldav".' };
+  }
+  const sourceType = sourceTypeRaw || 'url';
   const errors = [];
   if (!name || name.length > 80) errors.push('Name must be 1-80 characters.');
   let normalizedUrl = '';
-  try {
-    normalizedUrl = String(normalizeFeedUrl(feedUrlRaw));
-  } catch (err) {
-    errors.push(`Feed URL: ${err.message}`);
+  if (sourceType === 'caldav') {
+    try {
+      normalizedUrl = String(parseCaldavUrl(feedUrlRaw));
+    } catch (err) {
+      errors.push(`CalDAV calendar URL: ${err.message}`);
+    }
+  } else {
+    try {
+      normalizedUrl = String(normalizeFeedUrl(feedUrlRaw));
+    } catch (err) {
+      errors.push(`Feed URL: ${err.message}`);
+    }
   }
   if (!SYNC_INTERVAL_CHOICES.includes(interval)) {
     errors.push(`Interval must be one of: ${SYNC_INTERVAL_CHOICES.join(', ')} minutes.`);
@@ -322,7 +360,7 @@ async function resolvePairPayload(req, existing = null) {
     if (manual) calendarId = manual;
   }
   if (!calendarId) return { error: 'A target Google calendar ID is required.' };
-  return { fields: { name, feed_url: normalizedUrl, calendar_id: calendarId, interval_minutes: interval } };
+  return { fields: { name, feed_url: normalizedUrl, source_type: sourceType, calendar_id: calendarId, interval_minutes: interval } };
 }
 
 app.post('/pairs/:id/sync', async (req, res) => {

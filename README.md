@@ -17,6 +17,9 @@ Google Calendar API v3, with a small authenticated web dashboard.
   - **JCal** (RFC 7265 JSON) � recur values accepted as objects or strings.
   - **webcal://** URLs are treated as `https://` (with a one-shot `http://` fallback *only* when TLS fails and the URL carries no credentials).
 - All feeds normalize to **jCal** via `ical.js` (the internal representation everywhere).
+- **iCloud (CalDAV) sources (one-way):** authenticated reading of private iCloud calendars -
+  CalDAV discovery (principal -> calendar-home -> listing) plus one REPORT calendar-query per run
+  over the sync window; Apple ID + app-specific password via `.env` (see the iCloud section below).
 - **Per-pair sync into a dedicated Google calendar** using `calendar.events.import` �
   an upsert keyed by `iCalUID`, which makes every run idempotent. Recurrence
   (RRULE/RDATE/EXDATE lines) is preserved; Google expands occurrences.
@@ -74,6 +77,105 @@ Google Calendar API v3, with a small authenticated web dashboard.
 The OAuth scope requests `access_type=offline` + `prompt=consent`, which is
 Google's equivalent of OAuth2 `offline_access`: it yields a long-lived refresh
 token stored (only) in the local SQLite database.
+
+## iCloud (CalDAV) calendar source (one-way)
+
+CalSync can also READ private iCloud calendars as a feed source and mirror
+them into Google exactly like a URL feed: sync pairs with `source_type`
+`caldav` fetch over CalDAV (`https://caldav.icloud.com`) using HTTP Basic
+authentication. Apple offers no REST API for iCloud Calendar; CalDAV is the
+only supported access path. This build is strictly **one-way** (iCloud ->
+Google, read-only): iCloud as a target, two-way sync and a dashboard connect
+flow are future work.
+
+### 1. Create an app-specific password (required)
+
+iCloud CalDAV only accepts an app-specific password, never the account
+password (any Apple ID with two-factor authentication qualifies):
+
+1. Sign in at <https://appleid.apple.com> with your Apple ID.
+2. Open **Sign-In and Security** -> **App-Specific Passwords**.
+3. Click **+**, label it (e.g. `calsync`), and copy the generated password
+   (format `abcd-efgh-ijkl-mnop`). It is shown only once.
+
+### 2. Wire the credentials via .env (the only supported path in this build)
+
+CalSync keeps ONE iCloud account per deployment (an Apple ID usually owns
+several calendars). Credentials come from environment/.env only:
+
+```
+ICLOUD_APPLE_ID=your.name@icloud.com
+ICLOUD_APP_PASSWORD=abcd-efgh-ijkl-mnop
+```
+
+Restart the service. The values are stored in the local `icloud_accounts`
+SQLite table (same single-row pattern as the Google account) and are never
+logged, rendered or embedded in URLs. To rotate: change `.env`, restart.
+To disable iCloud sources: remove both variables, restart.
+
+### 3. Pick a calendar href
+
+List the event calendars the account can read:
+
+```
+node bin/inspect.js --caldav
+```
+
+This walks the standard discovery chain (current-user-principal ->
+calendar-home-set -> depth-1 PROPFIND of the calendar home), skips
+scheduling inboxes and Reminders (VTODO-only) collections, and prints for
+every remaining calendar its `caldav://` form:
+
+```
+  - Home
+      href      : https://caldav.icloud.com/1234567/calendars/ABCD-EFGH-1234/
+      caldav:// : caldav://caldav.icloud.com/1234567/calendars/ABCD-EFGH-1234/
+```
+
+The pair URL encoding is `caldav://<host>/<calendar-path>`: exactly the
+CalDAV href with the scheme renamed, never carrying credentials (those live
+only in `.env`). A plain `https://caldav.icloud.com/...` href is accepted
+too. Preview what a sync run would import from one calendar:
+
+```
+node bin/inspect.js --caldav caldav://caldav.icloud.com/1234567/calendars/ABCD-EFGH-1234/
+```
+
+### 4. Create the pair
+
+On the dashboard pick source type **iCloud calendar (CalDAV)** and paste the
+`caldav://` URL as the feed URL; pick or create the target Google calendar
+as usual. Everything downstream (planner, skip-unchanged hashing, Google
+import, deletion sweep, run log) behaves exactly like a URL-feed pair: one
+REPORT calendar-query replaces the HTTP ICS fetch and returns the same
+normalized event model. STATUS:CANCELLED events and events that disappear
+from the REPORT snapshot follow the usual "removed by the feed" rules
+(imports and deletions only ever touch events CalSync imported itself).
+
+### How it fetches (REPORT strategy)
+
+A single `REPORT calendar-query` per run with a `time-range` matching the
+sync window, requesting full `calendar-data` WITHOUT `expand`. Expanded
+instances would all carry the series UID (only RECURRE-ID differs) and
+collapse in the UID-keyed importer; keeping master components with
+RRULE/RDATE/EXDATE lines lets the existing recurrence pipeline and the
+Google-side expansion work unchanged. An etag pre-pass plus
+calendar-multiget would double the round trips for nothing, since
+skip-unchanged hashing happens on the Google side of the sync.
+
+### Limitations
+
+- Read-only, one-way (iCloud into Google). iCloud as a target, two-way sync
+  and a dashboard OAuth-style connect flow are future work.
+- Apple does not document CalDAV rate limits; the client therefore backs off
+  HTTP 429/5xx and network errors with exponential backoff + jitter honoring
+  `Retry-After` (`lib/caldav.js`), and a run makes at most one REPORT.
+- Only `caldav.icloud.com` is supported; generic CalDAV servers are out of
+  scope for this build.
+- Reminders (VTODO), scheduling inboxes and non-event collections are
+  skipped during discovery; only VEVENT-capable collections are listed.
+- Recurring series are imported as masters (RRULE lines) with the planner's
+  first-UID-wins duplicate rule, same as ICS feeds containing overrides.
 
 ## Setup (Ubuntu / Debian)
 
@@ -147,6 +249,7 @@ On **Node 22.x only**, run the service with `--experimental-sqlite`
 | `FETCH_TIMEOUT_MS` | `30000` | Feed fetch timeout |
 | `WINDOW_PAST_DAYS` / `WINDOW_FUTURE_DAYS` | `30` / `365` | Event import window |
 | `LOGIN_MAX_ATTEMPTS` / `LOGIN_WINDOW_MINUTES` | `8` / `15` | Login rate limiting |
+| `ICLOUD_APPLE_ID` / `ICLOUD_APP_PASSWORD` | - | iCloud CalDAV source credentials (Apple ID + app-specific password from appleid.apple.com); empty disables iCloud sources |
 
 ## Google push algorithm (per sync run)
 
@@ -177,19 +280,26 @@ is skipped that run so an outage cannot mass-delete the calendar.
 - **Events shifted by one hour around DST** � feeds that reference `TZID` names *without* a `VTIMEZONE` definition are handled via the IANA database when the name is a standard zone; exotic `X-` zone names fall back to server-local time (see known gaps).
 - **Rate limited (`401` on login)** � too many failed attempts; the limiter window resets after `LOGIN_WINDOW_MINUTES`.
 
+- **iCloud pair shows `HTTP 401 ...`** - the app-specific password expired or was revoked; re-issue one at <https://appleid.apple.com> (Sign-In and Security -> App-Specific Passwords), update `ICLOUD_APP_PASSWORD` in `.env` and restart.
+- **`iCloud (CalDAV) source not configured`** on runs - set `ICLOUD_APPLE_ID` and `ICLOUD_APP_PASSWORD` in `.env`, then restart the service.
+
 ## Development
 
 ```bash
 npm install
-npm test            # node:test runner; ~60 tests, no network, Google calls mocked
+npm test            # node:test runner; ~100 tests, no network; Google / iCloud CalDAV / feed calls mocked
 npm run inspect -- test/fixtures/sample.vcs   # parse any feed without Google
 node scripts/ical-spike.js                    # probe raw ical.js API behavior
+node bin/inspect.js --caldav                   # list iCloud event calendars or preview one (creds from .env)
 ```
 
 Tests cover: content sniffing, ICS/VCS/XCal/JCal ? jCal normalization (fixtures
 with folded lines, RRULE, VTIMEZONE, X-WR-CALNAME, a vCalendar 1.0 sample,
 an XCal sample, a JCal sample), window/relevance logic, upsert/deletion planning
 and the full sync engine against a mocked Google client (in-memory SQLite).
+iCloud (CalDAV) support adds multistatus fixture coverage for discovery and
+REPORT parsing, credential redaction, backoff and the identical sync-engine
+flow behind a mocked iCloud CalDAV client.
 
 ## Known gaps / limitations
 
