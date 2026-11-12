@@ -47,40 +47,72 @@
     return String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
 
-  // iCloud calendar picker: load the account's calendars and fill the
-  // source (feed_url) or target (target_url) input on click.
+  // iCloud calendar pickers (source + target): each loads the account's
+  // calendars and fills its side's input on click. A picker is only visible
+  // while its side is set to CalDAV (source select / target radio).
   function caldavListPicker() {
-    var btn = document.getElementById('caldav-load');
-    var list = document.getElementById('caldav-list');
-    var msg = document.getElementById('caldav-picker-msg');
-    if (!btn || !list || !msg) return;
-    btn.addEventListener('click', function () {
-      msg.textContent = 'Loading iCloud calendars...';
-      fetch('/caldav/calendars').then(function (r) { return r.json(); }).then(function (data) {
-        if (!data || !data.ok) {
-          msg.textContent = (data && data.error) ? data.error : 'Could not load calendars.';
-          list.innerHTML = '';
-          return;
-        }
-        msg.textContent = data.calendars.length ? 'Pick a calendar:' : 'No event calendars found on this iCloud account.';
-        list.innerHTML = data.calendars.map(function (c) {
-          return '<div class="caldav-row"><b>' + escAdd(c.name) + '</b> ' +
-            '<button type="button" class="btn" data-use="source" data-url="' + escAdd(c.caldavUrl) + '">Use as source</button> ' +
-            '<button type="button" class="btn" data-use="target" data-url="' + escAdd(c.caldavUrl) + '">Use as target</button></div>';
-        }).join('');
-        list.querySelectorAll('button[data-use]').forEach(function (b) {
-          b.addEventListener('click', function () {
-            var use = b.getAttribute('data-use');
-            var url = b.getAttribute('data-url');
-            var f = use === 'source' ? document.querySelector('input[name="feed_url"]') : document.querySelector('input[name="target_url"]');
-            if (f) f.value = url;
-            msg.textContent = 'Filled in - save the pair to apply.';
-          });
+    var configs = [
+      { btn: 'caldav-load-source', list: 'caldav-list-source', msg: 'caldav-picker-msg-source', block: 'caldav-picker-source', inputSelector: 'input[name="feed_url"]', useLabel: 'Use as source' },
+      { btn: 'caldav-load-target', list: 'caldav-list-target', msg: 'caldav-picker-msg-target', block: 'caldav-picker-target', inputSelector: 'input[name="target_url"]', useLabel: 'Use as target' },
+    ];
+    var cache = null;
+
+    function show(blockId, on) {
+      var el = document.getElementById(blockId);
+      if (el) el.hidden = !on;
+    }
+
+    function visibility() {
+      var srcSel = document.querySelector('select[name="source_type"]');
+      show('caldav-picker-source', !!srcSel && srcSel.value === 'caldav');
+      var rad = document.querySelector('input[name="target_type"]:checked');
+      show('caldav-picker-target', !!rad && rad.value === 'caldav');
+    }
+
+    function renderList(cfg, data) {
+      var list = document.getElementById(cfg.list);
+      var msg = document.getElementById(cfg.msg);
+      if (!list || !msg) return;
+      msg.textContent = data.calendars.length ? 'Pick a calendar:' : 'No event calendars found on this iCloud account.';
+      list.innerHTML = data.calendars.map(function (c) {
+        return '<div class="caldav-row"><b>' + escAdd(c.name) + '</b> ' +
+          '<button type="button" class="btn" data-fill="' + cfg.inputSelector + '" data-url="' + escAdd(c.caldavUrl) + '">' + cfg.useLabel + '</button></div>';
+      }).join('');
+      list.querySelectorAll('button[data-fill]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var f = document.querySelector(b.getAttribute('data-fill'));
+          if (f) f.value = b.getAttribute('data-url');
+          msg.textContent = 'Filled in - save the pair to apply.';
         });
-      }).catch(function (e) {
+      });
+    }
+
+    function load(cfg) {
+      var msg = document.getElementById(cfg.msg);
+      if (!msg) return;
+      msg.textContent = 'Loading iCloud calendars...';
+      var done = function (data) {
+        cache = data;
+        renderList(cfg, data);
+      };
+      if (cache && cache.ok) { done(cache); return; }
+      fetch('/caldav/calendars').then(function (r) { return r.json(); }).then(done).catch(function (e) {
         msg.textContent = 'Request failed: ' + (e && e.message ? e.message : String(e));
       });
+    }
+
+    configs.forEach(function (cfg) {
+      var btn = document.getElementById(cfg.btn);
+      if (btn) btn.addEventListener('click', function () { load(cfg); });
     });
+
+    var srcSel = document.querySelector('select[name="source_type"]');
+    if (srcSel) srcSel.addEventListener('change', visibility);
+    document.querySelectorAll('input[name="target_type"]').forEach(function (r) {
+      r.addEventListener('change', visibility);
+    });
+
+    visibility();
   }
 
   function confirmDialogs() {

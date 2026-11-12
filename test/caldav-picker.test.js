@@ -57,9 +57,10 @@ test('listIcloudCalendars: 401 errors are redacted (no app password in the messa
   assert.match(r.error, /401/);
 });
 
-test('pair form renders the iCloud calendar picker', () => {
+test('pair form renders the iCloud calendar picker per side (hidden until CalDAV is selected)', () => {
   const { body } = renderPairForm({ pair: null, calendars: [], googleConnected: true, googleError: null, csrf: 'TOK' });
-  assert.match(body, /id="caldav-load"/);
-  assert.match(body, /id="caldav-list"/);
-  assert.match(body, /id="caldav-picker-msg"/);
+  assert.match(body, /id="caldav-load-source"/);
+  assert.match(body, /id="caldav-load-target"/);
+  assert.match(body, /id="caldav-picker-source" data-caldav-use="source" hidden/, 'source picker hidden by default');
+  assert.match(body, /id="caldav-picker-target" data-caldav-use="target" hidden/, 'target picker hidden by default');
 });
