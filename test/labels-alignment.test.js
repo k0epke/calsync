@@ -63,7 +63,8 @@ test('resolveTargetLabels: fetch once, cache persists, caldav target derives lab
   assert.equal(first.get('1'), 'Label for family', 'google target resolved via API');
   assert.equal(calls, 1, 'one API call for one unknown target');
   assert.equal(db.getTargetLabel(`google:${pairs[0].calendar_id}`), 'Label for family', 'cached');
-  assert.ok(first.get('2').startsWith('iCloud: '), 'caldav target label derives from URL tail');
+  assert.ok(first.get('2'), 'caldav target label derives from URL tail');
+  assert.equal(first.get('2'), 'home', 'caldav target label derives from URL tail');
   const second = await resolveTargetLabels({ db, googleClient, pairs });
   assert.equal(second.get('1'), 'Label for family');
   assert.equal(calls, 1, 'cache hit: no second API call');
@@ -107,21 +108,22 @@ test('target cell renders the resolved label and keeps the raw id in its title',
   const pairs = makePairs();
   pairs[0].target_label = 'Avery Basketball (iCloud mirror)';
   const body = dashboardPage({ pairs, google: GOOGLE_STATE, tags: [] }).body;
-  assert.match(body, /Avery Basketball \(iCloud mirror\)/);
+  assert.match(body, /Google - Avery Basketball \(iCloud mirror\)/, 'qualified target shown in the cell');
   assert.match(body, /title="family00127487564181454180@group\.calendar\.google\.com"/, 'raw id lives in the tooltip');
 });
 
 test('filter bar: Target/Tags/Interval dropdowns render with row filter attributes', () => {
   const tags = [{ slot: 1, name: 'Aidan', color: '#e53935' }, { slot: 2, name: '', color: '#43a047' }];
-  const body = dashboardPage({ pairs: makePairs(), google: GOOGLE_STATE, tags }).body;
+  const body = dashboardPage({ pairs: [...makePairs(), caldavPair()], google: GOOGLE_STATE, tags }).body;
   assert.match(body, /id="filter-target"/, 'target dropdown present');
   assert.match(body, /id="filter-tags"/, 'tags dropdown present');
   assert.match(body, /id="filter-interval"/, 'interval dropdown present');
-  assert.match(body, /<option value="family00127487564181454180@group\.calendar\.google\.com">/, 'target option carries the resolved label');
+  assert.match(body, /<option value="Google - family00127487564181454180@group\.calendar\.google\.com">/, 'google targets listed qualified');
+  assert.match(body, /<option value="CalDAV - home">/, 'caldav targets listed qualified by URL tail');
   assert.match(body, /<option value="1">Aidan<\/option>/, 'only named tag slots become options');
   assert.doesNotMatch(body, /<option value="2"><\/option>/, 'unnamed slots are not offered');
   assert.match(body, /<option value="30">/, 'interval option present');
   const namecell = (body.match(/<td class="namecell"([^>]*)>/) || [])[1] ?? '';
-  assert.match(namecell, /data-target="/);
+  assert.match(namecell, /data-target="Google - family00127487564181454180@group\.calendar\.google\.com"/);
   assert.match(namecell, /data-tag-slots=""/, 'pair has no assigned tags yet');
 });
