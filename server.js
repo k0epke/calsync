@@ -18,6 +18,7 @@ import { createIcloudCalDavClient, parseCaldavUrl } from './lib/caldav.js';
 import { createAlertServices } from './lib/alerts.js';
 import { normalizeEventFiltersInput } from './lib/filters.js';
 import { normalizeCopyMode } from './lib/copymode.js';
+import { makeSaveTagsHandler, makePairTagsHandler } from './lib/tags.js';
 import { Scheduler, SYNC_INTERVAL_CHOICES } from './lib/scheduler.js';
 import {
   createOAuthClient, authUrlFor, GoogleCalendarClient, google as googleClientLib,
@@ -152,7 +153,7 @@ function redirectWith(res, params) {
 
 // Pages are rendered through small factories so every route stays terse.
 const renderFactory = {
-  Dashboard: ({ pairs, google, csrf }) => renderDashboard({ pairs, google, csrf }),
+  Dashboard: ({ pairs, google, tags, csrf }) => renderDashboard({ pairs, google, tags, csrf }),
   PairForm: ({ pair, calendars, googleConnected, googleError, csrf }) => renderPairForm({ pair, calendars, googleConnected, googleError, csrf }),
   Runs: ({ pair, runs }) => renderRuns({ pair, runs }),
   Login: ({ next }) => renderLogin({ next }),
@@ -253,7 +254,19 @@ function googleState() {
 }
 
 app.get('/', (req, res) => {
-  page(req, res, 'Dashboard', { pairs: db.listPairsWithStatus(), google: googleState() },
+  // Dashboard organization inputs (render-only): the tag catalog, per-pair
+  // assignments, and the newest run detail per pair (drives the
+  // "ICS feed (auto-detected)" category label). The sync engine never reads
+  // tags; category derivation is pure render (lib/render.js).
+  const tags = db.listTags();
+  const tagMap = db.tagMapForPairs();
+  const lastRunDetails = db.lastRunDetailByPair();
+  const pairs = db.listPairsWithStatus().map((p) => ({
+    ...p,
+    tags: tagMap.get(Number(p.id)) ?? [],
+    last_run_detail: lastRunDetails.get(Number(p.id)) ?? null,
+  }));
+  page(req, res, 'Dashboard', { pairs, google: googleState(), tags },
     { msg: req.query.msg, err: req.query.err });
 });
 
@@ -478,6 +491,13 @@ app.get('/pairs/:id/runs', (req, res) => {
   page(req, res, 'Runs', { pair, runs: db.listRuns(pair.id, 30) },
     { msg: req.query.msg, err: req.query.err });
 });
+
+// --- dashboard tags (organization only) --------------------------------------
+// Same session/CSRF/flash-redirect patterns as every other POST (the global
+// CSRF guard + auth gate already ran; the handlers parse, validate, and
+// redirect with a flash). Tags are dashboard state and never leave it.
+app.post('/tags', makeSaveTagsHandler(db, redirectWith));
+app.post('/pairs/:id/tags', makePairTagsHandler(db, redirectWith, page404));
 
 // --- Google OAuth ------------------------------------------------------------------
 app.get('/oauth/start', (req, res) => {

@@ -117,3 +117,67 @@ fieldset .radio > label { font-weight: 500; }
   tableRuns, table.pairs { font-size: 0.9rem; }
   .wrap { padding: 0 0.6rem; }
 }
+
+/* --- Dashboard organization: sortable table, filter bar, category, tags --- */
+
+/* Sortable column headers: a plain button inside the th; app.js toggles the
+   arrow text (^ = ascending, v = descending) and the th class below. */
+th.sortable { cursor: pointer; white-space: nowrap; }
+.th-sort {
+  border: 0; background: none; padding: 0 0 0; font: inherit; cursor: pointer;
+  text-transform: uppercase; letter-spacing: 0.04em; color: inherit;
+  display: inline-flex; align-items: center; gap: 0.15rem;
+}
+.th-sort:hover { background: none; border: 0; }
+.sort-arrow { display: inline-block; width: 1em; color: var(--accent); font-weight: 700; }
+th.sort-asc .sort-arrow, th.sort-desc .sort-arrow { color: var(--accent); }
+
+/* Filter bar above the pairs table (client-side; state in localStorage). */
+.filterbar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.6rem; }
+.filterbar input[type="search"] {
+  flex: 1 1 220px; max-width: 360px; font: inherit; padding: 0.4rem 0.6rem;
+  border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink);
+}
+.filterbar select {
+  font: inherit; font-size: 0.9rem; padding: 0.4rem 0.5rem;
+  border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink);
+}
+#filter-count { min-width: 12ch; }
+
+/* Category + tag chips. */
+.cat-chip { background: #e0e7ff; color: #3730a3; }
+.tag-chip {
+  display: inline-block; padding: 0.1rem 0.55rem; border-radius: 999px;
+  font-size: 0.72rem; font-weight: 600; color: #ffffff;
+  margin: 0 0.15rem 0.15rem 0;
+}
+.color-dot {
+  display: inline-block; width: 16px; height: 16px; border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.25); vertical-align: middle; flex: 0 0 auto;
+}
+.color-dot.small { width: 12px; height: 12px; }
+
+/* Per-pair tag picker (server-rendered details form, no JS needed). */
+.tag-picker { margin-top: 0.3rem; }
+.tag-picker summary { cursor: pointer; font-size: 0.8rem; color: var(--muted); }
+.tag-form { margin-top: 0.4rem; display: flex; flex-direction: column; gap: 0.3rem; align-items: flex-start; }
+.tag-form button { align-self: flex-start; }
+.tag-pick { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.82rem; }
+button.smallbtn { padding: 0.2rem 0.55rem; font-size: 0.8rem; }
+
+/* Tags manager above the pairs table. */
+#tag-manager h2 { font-size: 1.05rem; margin: 0 0 0.2rem; }
+#tag-manager .tag-slots {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 0.4rem 1.2rem; margin: 0.7rem 0 0.9rem;
+}
+.tag-slot-row { display: flex; align-items: center; gap: 0.45rem; }
+.tag-slot-label { font-size: 0.8rem; color: var(--muted); flex: 0 0 auto; white-space: nowrap; }
+.tag-slot-row input[type="text"] {
+  flex: 1 1 auto; min-width: 8ch; font: inherit; font-size: 0.85rem;
+  padding: 0.3rem 0.5rem; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink);
+}
+.tag-slot-row select {
+  font: inherit; font-size: 0.78rem; padding: 0.25rem 0.3rem;
+  border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); max-width: 9ch;
+}

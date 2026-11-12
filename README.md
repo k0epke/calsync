@@ -64,7 +64,10 @@ Google Calendar API v3, with a small authenticated web dashboard.
   persist in SQLite.
 - **Dashboard:** server-rendered HTML + a little vanilla JS, one small stylesheet,
   no frameworks. Pair CRUD, Google connection state, run history with per-event
-  failure details.
+  failure details, plus dashboard organization: client-side sorting and
+  filtering, an auto-derived category column and 10 customizable color-coded
+  tag slots (see "Dashboard organization: sorting, filters, category, tags"
+  below).
 
 ## Security model
 
@@ -399,6 +402,52 @@ a masked pair reaches the same zero-write steady state as a full-detail
 pair - no rewrite churn from masking. Because the mask is deterministic,
 changing a pair's copy mode costs exactly one repair write per event, then
 converges again.
+
+## Dashboard organization: sorting, filters, category, tags
+
+The pairs table gained a dashboard organization surface on top of the sync
+state - everything in this section is render/client-side state and never
+changes sync behavior.
+
+- **Sorting.** The column headers Name, Category, Target, Interval, Status
+  and Last run are clickable: a click toggles ascending/descending and a
+  small arrow marks the active sort. Rows are sorted client-side over the
+  rendered rows (default: name, ascending). The chosen sort persists in
+  localStorage so it survives reloads; when storage is unavailable it
+  degrades gracefully to session-only.
+- **Filter bar.** Above the table: a free-text search (matches pair name OR
+  feed URL, case-insensitive substring), a category picker (All / Google /
+  CalDAV / WebCal / ICS feed) and a status picker (All / Enabled / Paused /
+  With errors; "With errors" means the last run ended in `error` or
+  `partial`). All filters apply live with no reload, persist in localStorage,
+  and **Clear filters** resets both inputs and the stored state. Non-matching
+  rows are hidden; when nothing matches, a "no sync pairs match" line is
+  shown.
+- **Category column.** Auto-derived per row, purely for display:
+  `source_type` `google` renders **Google**, `caldav` renders **CalDAV
+  (iCloud)**, a `webcal://` source renders **WebCal**, and `http(s)://` URL
+  feeds render **ICS feed**. The VCS/XCal/JCal sub-formats cannot be known
+  statically - they are content-sniffed at sync time - so a URL pair whose
+  newest run recorded one of them renders exactly **ICS feed
+  (auto-detected)**, with a tooltip; the run history detail line records the
+  precise format of every run.
+- **Tags.** Ten fixed, customizable color-coded slots, managed in the
+  compact **Tags** block above the pairs table: rename inline and recolor
+  from the same fixed 10-color palette, applied by one Save form
+  (`POST /tags`, CSRF-protected). Pairs can be assigned any named tag(s)
+  from the per-pair collapsible Tags section - a server-rendered POST form
+  (`POST /pairs/:id/tags`, CSRF-protected) that needs no JavaScript;
+  assigned tags render as colored chips in each row. Unassign = uncheck
+  (omit). Colors are validated against the fixed palette; only slots with a
+  non-empty name are assignable.
+
+**Scope note:** Tags organize the dashboard only; they are not attached to
+synced events and the sync engine never reads them. (Attaching tags to
+individual events in a target calendar is future work, not part of this
+build.) Tags and assignments live in the local SQLite database (`tags` and
+`pair_tags` tables, created by a pragma-guarded idempotent migration that is
+safe to run on existing databases; deleting a pair cascades away its tag
+assignments).
 
 ## Generic CalDAV hosts (CALDAV_ALLOW_ANY_HOST)
 
