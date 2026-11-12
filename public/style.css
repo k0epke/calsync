@@ -185,3 +185,5 @@ button.smallbtn { padding: 0.2rem 0.55rem; font-size: 0.8rem; }
 .caldav-list { margin-top: 6px; }
 .caldav-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; flex-wrap: wrap; }
 .caldav-row b { min-width: 90px; }
+
+[hidden] { display: none !important; }
