@@ -13,10 +13,13 @@ import { ensureAdminUser, createRateLimiter, verifyCredentials, newCsrfToken, sa
 import { fetchFeed, normalizeFeedUrl } from './lib/fetchfeed.js';
 import { planSync } from './lib/planner.js';
 import { parseFeed, ParseError } from './lib/icalparse.js';
-import { createSyncEngine, SyncError } from './lib/sync.js';
+import { createSyncEngine, SyncError, pairSemanticError } from './lib/sync.js';
 import { createIcloudCalDavClient, parseCaldavUrl } from './lib/caldav.js';
 import { Scheduler, SYNC_INTERVAL_CHOICES } from './lib/scheduler.js';
-import { createOAuthClient, authUrlFor, GoogleCalendarClient, google as googleClientLib } from './lib/google.js';
+import {
+  createOAuthClient, authUrlFor, GoogleCalendarClient, google as googleClientLib,
+  parseGoogleSourceUrl, googleSourceUrlOf,
+} from './lib/google.js';
 import { renderLogin, renderDashboard, renderPairForm, renderRuns, renderError, layout, esc } from './lib/render.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -299,16 +302,21 @@ app.post('/pairs/:id', async (req, res) => {
   redirectWith(res, { msg: `Sync pair "${updated.name}" updated (schedule re-armed).` });
 });
 
-// Validate + build pair fields; resolves target calendar (select/create/manual).
+// Validate + build pair fields; resolves the source encoding (url / caldav://
+// / google://) and the target (Google calendar select/create/manual, or a
+// CalDAV href pointing at an iCloud calendar). Semantic guards (G->G mirror,
+// same-CalDAV-calendar) run here at pair create/update per the two-way spec.
 async function resolvePairPayload(req, existing = null) {
   const name = String(req.body?.name ?? '').trim();
   const feedUrlRaw = String(req.body?.feed_url ?? '').trim();
   const interval = Number(req.body?.interval_minutes ?? 0);
   const sourceTypeRaw = String(req.body?.source_type ?? '').trim();
-  if (!['url', 'caldav'].includes(sourceTypeRaw || 'url')) {
-    return { error: 'Source type must be "url" or "caldav".' };
+  if (!['url', 'caldav', 'google'].includes(sourceTypeRaw || 'url')) {
+    return { error: 'Source type must be "url", "caldav" or "google".' };
   }
   const sourceType = sourceTypeRaw || 'url';
+  const targetRaw = String(req.body?.target_type ?? '').trim().toLowerCase();
+  const targetType = targetRaw === 'caldav' ? 'caldav' : 'google';
   const errors = [];
   if (!name || name.length > 80) errors.push('Name must be 1-80 characters.');
   let normalizedUrl = '';
@@ -317,6 +325,12 @@ async function resolvePairPayload(req, existing = null) {
       normalizedUrl = String(parseCaldavUrl(feedUrlRaw));
     } catch (err) {
       errors.push(`CalDAV calendar URL: ${err.message}`);
+    }
+  } else if (sourceType === 'google') {
+    try {
+      normalizedUrl = googleSourceUrlOf(parseGoogleSourceUrl(feedUrlRaw));
+    } catch (err) {
+      errors.push(`Google source URL: ${err.message}`);
     }
   } else {
     try {
@@ -330,37 +344,57 @@ async function resolvePairPayload(req, existing = null) {
   }
   if (errors.length) return { error: errors.join(' ') };
 
+  let targetUrl = existing?.target_url ?? null;
   let calendarId = String(existing ? existing.calendar_id : '').trim();
-  const mode = String(req.body?.calendar_mode ?? 'manual');
-  if (oauthClient && db.getGoogleAccount()) {
-    if (mode === 'select') {
-      const picked = String(req.body?.calendar_id_select ?? '').trim();
-      if (!picked) return { error: 'Pick a target calendar.' };
-      calendarId = picked;
-    } else if (mode === 'create') {
-      const newCalName = String(req.body?.new_calendar_name ?? '').trim();
-      if (!newCalName || newCalName.length > 1024) return { error: 'New calendar name must be 1-1024 characters.' };
-      try {
-        const gclient = currentGoogleClient();
-        if (!gclient) return { error: 'Google account not connected — cannot create a calendar.' };
-        const cal = await gclient.createCalendar(newCalName, config.timezone);
-        if (!cal?.id) return { error: 'Calendar creation did not return an id.' };
-        calendarId = cal.id;
-        logger.info(`Created Google calendar "${newCalName}" (${cal.id})`);
-      } catch (err) {
-        return { error: `Calendar creation failed: ${err.message}` };
+  if (targetType === 'caldav') {
+    // CalDAV target: a caldav:// or https:// href of the iCloud calendar to
+    // mirror into; credentials come from .env like every other CalDAV access
+    // (no new secrets, no creds in URLs).
+    const rawTarget = String(req.body?.target_url ?? '').trim() || (existing?.target_url ?? '');
+    try {
+      targetUrl = String(parseCaldavUrl(rawTarget));
+    } catch (err) {
+      return { error: `CalDAV target URL: ${err.message}` }; 
+    }
+    calendarId = '';
+  } else {
+    const mode = String(req.body?.calendar_mode ?? 'manual');
+    if (oauthClient && db.getGoogleAccount()) {
+      if (mode === 'select') {
+        const picked = String(req.body?.calendar_id_select ?? '').trim();
+        if (!picked) return { error: 'Pick a target calendar.' };
+        calendarId = picked;
+      } else if (mode === 'create') {
+        const newCalName = String(req.body?.new_calendar_name ?? '').trim();
+        if (!newCalName || newCalName.length > 1024) return { error: 'New calendar name must be 1-1024 characters.' };
+        try {
+          const gclient = currentGoogleClient();
+          if (!gclient) return { error: 'Google account not connected — cannot create a calendar.' };
+          const cal = await gclient.createCalendar(newCalName, config.timezone);
+          if (!cal?.id) return { error: 'Calendar creation did not return an id.' };
+          calendarId = cal.id;
+          logger.info(`Created Google calendar "${newCalName}" (${cal.id})`);
+        } catch (err) {
+          return { error: `Calendar creation failed: ${err.message}` };
+        }
+      } else {
+        const manual = String(req.body?.calendar_id_manual ?? '').trim();
+        if (!/^[^\s]{5,300}$/.test(manual)) return { error: 'Custom calendar ID is empty or malformed.' };
+        calendarId = manual;
       }
     } else {
       const manual = String(req.body?.calendar_id_manual ?? '').trim();
-      if (!/^[^\s]{5,300}$/.test(manual)) return { error: 'Custom calendar ID is empty or malformed.' };
-      calendarId = manual;
+      if (manual) calendarId = manual;
     }
-  } else {
-    const manual = String(req.body?.calendar_id_manual ?? '').trim();
-    if (manual) calendarId = manual;
+    if (!calendarId) return { error: 'A target Google calendar ID is required.' };
   }
-  if (!calendarId) return { error: 'A target Google calendar ID is required.' };
-  return { fields: { name, feed_url: normalizedUrl, source_type: sourceType, calendar_id: calendarId, interval_minutes: interval } };
+  const fields = {
+    name, feed_url: normalizedUrl, source_type: sourceType, calendar_id: calendarId,
+    target_type: targetType, target_url: targetUrl, interval_minutes: interval,
+  };
+  const conflict = pairSemanticError(fields);
+  if (conflict) return { error: conflict };
+  return { fields };
 }
 
 app.post('/pairs/:id/sync', async (req, res) => {

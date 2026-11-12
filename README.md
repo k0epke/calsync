@@ -17,9 +17,14 @@ Google Calendar API v3, with a small authenticated web dashboard.
   - **JCal** (RFC 7265 JSON) � recur values accepted as objects or strings.
   - **webcal://** URLs are treated as `https://` (with a one-shot `http://` fallback *only* when TLS fails and the URL carries no credentials).
 - All feeds normalize to **jCal** via `ical.js` (the internal representation everywhere).
-- **iCloud (CalDAV) sources (one-way):** authenticated reading of private iCloud calendars -
+- **iCloud (CalDAV) sources:** authenticated reading of private iCloud calendars -
   CalDAV discovery (principal -> calendar-home -> listing) plus one REPORT calendar-query per run
   over the sync window; Apple ID + app-specific password via `.env` (see the iCloud section below).
+- **Google sources (google://<calendarId>):** mirror a connected Google calendar into another
+  target (CalDAV targets; Google targets are rejected as degenerate at pair create/update).
+- **iCloud (CalDAV) targets (two-way):** any source type (url / caldav / google) can target an
+  iCloud calendar - skip-unchanged against the LIVE remote copy via canonical hashes, PUT/DELETE
+  per UID with If-Match, and its own deletion sweep (see the two-way section below).
 - **Per-pair sync into a dedicated Google calendar** using `calendar.events.import` �
   an upsert keyed by `iCalUID`, which makes every run idempotent. Recurrence
   (RRULE/RDATE/EXDATE lines) is preserved; Google expands occurrences.
@@ -78,15 +83,15 @@ The OAuth scope requests `access_type=offline` + `prompt=consent`, which is
 Google's equivalent of OAuth2 `offline_access`: it yields a long-lived refresh
 token stored (only) in the local SQLite database.
 
-## iCloud (CalDAV) calendar source (one-way)
+## iCloud (CalDAV) calendar source and target
 
-CalSync can also READ private iCloud calendars as a feed source and mirror
+CalSync can read private iCloud calendars as a feed source and mirror
 them into Google exactly like a URL feed: sync pairs with `source_type`
 `caldav` fetch over CalDAV (`https://caldav.icloud.com`) using HTTP Basic
 authentication. Apple offers no REST API for iCloud Calendar; CalDAV is the
-only supported access path. This build is strictly **one-way** (iCloud ->
-Google, read-only): iCloud as a target, two-way sync and a dashboard connect
-flow are future work.
+only supported access path. Since the two-way build, iCloud calendars can
+also be written as a **target** (see "Two-way sync" below); a dashboard
+connect flow for iCloud is still future work.
 
 ### 1. Create an app-specific password (required)
 
@@ -165,8 +170,10 @@ skip-unchanged hashing happens on the Google side of the sync.
 
 ### Limitations
 
-- Read-only, one-way (iCloud into Google). iCloud as a target, two-way sync
-  and a dashboard OAuth-style connect flow are future work.
+- WRITE support is new: Apple does not document CalDAV write rate limits, so
+  writes go out strictly sequentially with the usual backoff (see the two-way
+  section). A dashboard OAuth-style connect flow for iCloud remains future
+  work.
 - Apple does not document CalDAV rate limits; the client therefore backs off
   HTTP 429/5xx and network errors with exponential backoff + jitter honoring
   `Retry-After` (`lib/caldav.js`), and a run makes at most one REPORT.
@@ -176,6 +183,127 @@ skip-unchanged hashing happens on the Google side of the sync.
   skipped during discovery; only VEVENT-capable collections are listed.
 - Recurring series are imported as masters (RRULE lines) with the planner's
   first-UID-wins duplicate rule, same as ICS feeds containing overrides.
+
+## Two-way sync: CalDAV targets and Google sources
+
+Sync pairs gained a direction choice: every pair still has ONE source and
+ONE target, but the target can be an iCloud calendar (CalDAV writes) and the
+source can be a Google calendar (google:// encoding). The engine routes all
+mutations through a small target-adapter layer; the planner, run_log
+bookkeeping, partial-failure protections (all-imports-failed aborts the
+deletion pass), unchanged counting, isRunning guard and scheduler are
+target-agnostic and behave identically for every target kind.
+
+### Target types
+
+- `target_type = google` (default): the classic flow - the pair mirrors into
+  a Google calendar by calendar ID (select / create / manual on the
+  dashboard). Legacy database rows read as google targets and behave
+  byte-identically to before.
+- `target_type = caldav`: the pair writes into an iCloud calendar.
+  `target_url` holds the href in the `caldav://<host>/<calendar-path>` form
+  (a plain https:// href works identically to the source encoding);
+  credentials are NEVER carried in URLs. Writes reuse the SAME `.env` iCloud
+  credentials as sources (ICLOUD_APPLE_ID / ICLOUD_APP_PASSWORD) - no new
+  secrets were introduced.
+
+### Google sources (google://<calendarId>)
+
+`source_type = google` encodes the source calendar as `google://<calendarId>`
+inside the stored feed URL (mirrors the caldav:// discipline: no credentials,
+no query strings, strict validation at pair create/update). The engine reads
+the calendar with the same paginated `events.list` skeleton the skip logic
+uses, maps every resource through the same internal event model, and feeds
+planner + target adapter unchanged. Google-as-source into a Google target is
+rejected at pair create/update with a clear error: a G->G mirror is
+degenerate because the events already live in Google.
+
+### Skip-unchanged for CalDAV targets (canonical hash comparison)
+
+For google targets the skip rule stays exactly as before: the stored
+per-UID content hash in `synced_events` is compared against the hash of the
+event the pair would import. For caldav targets the comparison is stronger
+and self-healing: every run takes ONE REPORT snapshot of the target
+calendar, parses each VEVENT through the SAME feed parser, and compares the
+live remote copy against the event it would write. Both sides normalize
+through ONE canonical function:
+
+    normalizeEventForCompare(event) = toGoogleEvent(event) minus SEQUENCE
+
+so the hashed field subset is exactly CONTENT_HASH_FIELDS and
+Google-normalized and CalDAV-normalized representations compare stably.
+The explicit exclusion list (tested against a realistic Apple-roundtrip
+fixture):
+
+- X- properties, PRODID, DTSTAMP, CREATED, LAST-MODIFIED: the internal
+  parser never reads them, so Apple-side rewrites of these fields can never
+  phantom-diff.
+- SEQUENCE: CalDAV servers may renumber it when storing and Google assigns
+  its own sequence numbers on import; mirroring it would make mirrored pairs
+  chase each other's metadata forever. Real content changes still re-write.
+
+Writes are idempotent PUTs to `{calendarHref}/{UID}.ics` (create or
+overwrite, VEVENT with the UID preserved, RRULE/RDATE/EXDATE lines, and a
+VTIMEZONE for every referenced TZID). When the snapshot showed the resource
+exists, the PUT carries If-Match with that etag; on 412 (a concurrent
+writer moved it) the client re-snapshots exactly once and retries with the
+fresh etag - writing unconditionally if the resource vanished in between; a
+second 412 surfaces as a per-event failure. DELETEs are sent WITHOUT
+If-Match by choice: the sweep only touches UIDs the pair itself wrote, and
+404 counts as already-gone, not an error.
+
+### Loop safety (X <-> G mirror pairs)
+
+A two-way setup is two one-way pairs pointing at each other, e.g.
+
+    pair A: source caldav://X,  target google://G
+    pair B: source google://G,  target caldav://X
+
+The adapters plus the canonical comparison make this loop converge (the
+scenario set is asserted in the test suite):
+
+1. Initial round trip: A imports X into G; B then compares each G event
+   against what X already holds and PUTs NOTHING (canonical hashes compare
+   equal). After both pairs run, X and G hold equivalent content and BOTH
+   pairs' next runs are zero-write.
+2. One edit: an edit in X flows through A into G (one import) and B skips
+   (X already holds the edit) - converges within one full cycle and does
+   not multiply. An edit in G flows through B into X (one PUT) and A's next
+   run skips once its stored hash reflects the new content.
+3. UIDs are preserved end to end (no event respawn): the CalDAV PUT keeps
+   the iCalUID as both the resource name ({UID}.ics) and the VEVENT UID,
+   and Google import keys on iCalUID.
+4. User edits in the middle of the loop stabilize per "source is
+   authority": each pair drives its target toward its own source snapshot,
+   so the last writer is whichever source snapshot the pair read (by
+   design). A user edit to X between A's read and B's write is overwritten
+   by B and the loop stabilizes immediately with no oscillation. User
+   events created directly in X are never touched by B (a pair only deletes
+   what it itself wrote) - pair A picks them up into G.
+
+Guards: a pair whose source and target resolve to the same CalDAV calendar
+(href equality modulo trailing slash, caldav:// vs https:// normalized)
+cannot be created or run, and G->G pairs are rejected outright. The
+deletion sweep stays pair-scoped: only UIDs previously written by that pair
+(synced_events) and now missing from its source snapshot are deleted from
+its target - pre-existing content in either side survives untouched.
+
+### Two-way limitations
+
+- Apple does not document CalDAV write rate limits; CalSync therefore
+  writes strictly sequentially (one PUT/DELETE at a time, same push delay
+  and 429/5xx exponential backoff honoring Retry-After as Google writes)
+  and, when every attempted import fails, skips the deletion pass so an
+  outage cannot mass-delete the target.
+- TZID references: PUT payloads inline VTIMEZONE definitions when one is
+  available (shipped with the source or registered by a feed parse). A TZID
+  without any definition (possible for google:// sources) is written as a
+  TZID reference only - Apple resolves standard Olson zone names itself.
+- Per-instance cancellations inside Google recurring series are not
+  mirrored to iCloud (masters mirror with their RRULE lines, same as the
+  Google import direction).
+- SEQUENCE drift converges: a server-side renumbering (Google or Apple) can
+  cost exactly one repair write per affected event, then zero-writes.
 
 ## Setup (Ubuntu / Debian)
 
@@ -282,12 +410,14 @@ is skipped that run so an outage cannot mass-delete the calendar.
 
 - **iCloud pair shows `HTTP 401 ...`** - the app-specific password expired or was revoked; re-issue one at <https://appleid.apple.com> (Sign-In and Security -> App-Specific Passwords), update `ICLOUD_APP_PASSWORD` in `.env` and restart.
 - **`iCloud (CalDAV) source not configured`** on runs - set `ICLOUD_APPLE_ID` and `ICLOUD_APP_PASSWORD` in `.env`, then restart the service.
+- **`iCloud (CalDAV) target not configured`** on runs - the target side needs the same two variables; they apply to reads and writes alike.
+- **`HTTP 412` failures on a pair's runs page** - another writer keeps invalidating CalSync's etags (a second sync app on the same iCloud calendar?); the client refreshes its snapshot once per write and then surfaces the conflict as a per-event failure.
 
 ## Development
 
 ```bash
 npm install
-npm test            # node:test runner; ~100 tests, no network; Google / iCloud CalDAV / feed calls mocked
+npm test            # node:test runner; ~150 tests, no network; Google / iCloud CalDAV (read + write) / feed calls mocked
 npm run inspect -- test/fixtures/sample.vcs   # parse any feed without Google
 node scripts/ical-spike.js                    # probe raw ical.js API behavior
 node bin/inspect.js --caldav                   # list iCloud event calendars or preview one (creds from .env)

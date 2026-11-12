@@ -36,7 +36,7 @@ export const FIXED_NOW_MS = Date.parse('2026-11-11T12:00:00Z');
 // cancelled copies that the skip-unchanged rule must repair via re-import
 // (cancelled *instances* of recurring series are always returned by the API).
 export function makeGoogleMock({ failImportUids = [], failAllWith = null, failDeletesFor = [], failListWith = null, seedEvents = [] } = {}) {
-  const calls = { imports: [], deletes: [], calendarsCreated: [], calendarLists: 0, listReads: [] };
+  const calls = { imports: [], deletes: [], calendarsCreated: [], calendarLists: 0, listReads: [], listSourceReads: [] };
   const calendars = new Map(); // calendarId -> array of stored Google event resources
   let nextEventId = 1;
   const stateFor = (calendarId) => {
@@ -86,6 +86,29 @@ export function makeGoogleMock({ failImportUids = [], failAllWith = null, failDe
       else state.push(stored);
       return { data: stored };
     },
+    // Google-as-source snapshot: one paginated-style read returning the RAW
+    // stored event resources (same contract as the real client's
+    // snapshotSourceEvents: master-with-recurrence preferred on iCalUID
+    // collisions, deleted/unresourced items absent by construction).
+    async snapshotSourceEvents(calendarId) {
+      if (failListWith) {
+        const err = new Error(failListWith);
+        err.status = 500;
+        throw err;
+      }
+      const state = stateFor(calendarId);
+      calls.listSourceReads.push({ calendarId, events: state.length });
+      const byUid = new Map();
+      const unkeyed = [];
+      for (const item of state) {
+        const uid = item?.iCalUID;
+        if (!uid) { unkeyed.push(item); continue; }
+        const prev = byUid.get(uid);
+        if (!prev || ((prev.recurrence?.length ?? 0) === 0 && (item.recurrence?.length ?? 0) > 0)) byUid.set(uid, item);
+      }
+      // uid-less resources pass through so the engine warns and skips them.
+      return { events: [...byUid.values(), ...unkeyed], warnings: [], calendarId };
+    },
     async deleteAllByUid(calendarId, uid) {
       if (holder.failDeletesFor.includes(uid)) throw new Error('delete boom');
       calls.deletes.push([calendarId, uid]);
@@ -112,4 +135,135 @@ export function makeGoogleMock({ failImportUids = [], failAllWith = null, failDe
   };
   holder.client = client;
   return holder;
+}
+
+// ---------------------------------------------------------------------------
+// Stateful in-memory CalDAV WRITE server (two-way target tests)
+// ---------------------------------------------------------------------------
+
+// Implements exactly the surface lib/caldav.js's write path exercises, at
+// the fetchImpl boundary (no network):
+// - REPORT calendar-query: one multistatus row per stored resource with
+//   getetag + full calendar-data (ICS bodies stored VERBATIM; Apple-realism
+//   normalization is applied by tests via store.putRaw - see the Apple
+//   roundtrip fixtures),
+// - PUT {UID}.ics: create (201) or overwrite (204); If-Match is honored
+//   against the stored entity tag and mismatches yield 412; every successful
+//   PUT changes the resource's etag (like any real CalDAV store),
+// - DELETE {UID}.ics: 204 on delete, 404 when already gone. DELETEs carry
+//   no If-Match by design (documented in lib/caldav.js).
+// `racingWriter: true` simulates a concurrent writer that keeps invalidating
+// our etags: every PUT carrying If-Match responds 412 without storing, so
+// putEvent's documented one-refresh-retry path exhausts and throws.
+// The mock ignores the REPORT time-range (a documented simplification: the
+// engine window-filters client-side and only compares in-window events).
+export function makeCaldavWriteMock({
+  calendarHref = 'https://caldav.icloud.com/123/calendars/home/',
+  seeds = [],
+  racingWriter = false,
+} = {}) {
+  const calls = { reports: 0, puts: [], deletes: [] };
+  const resources = new Map(); // uid -> { ics, etag }
+  let etagCounter = 1;
+  const nextEtag = () => `"e-${etagCounter++}"`;
+
+  for (const seed of seeds ?? []) {
+    resources.set(String(seed.uid), { ics: String(seed.ics ?? ''), etag: `"${seed.etag ?? `seed-${etagCounter++}`}"` });
+  }
+
+  const xmlEscape = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const statusResponse = (status, bodyXml = '') => new Response(
+    status === 204 || status === 201 ? null : bodyXml,
+    { status, headers: { 'content-type': 'application/xml; charset=utf-8' } },
+  );
+
+  const multistatus = () => {
+    const rows = [...resources.entries()].map(([uid, res]) => [
+      '  <D:response>',
+      `    <D:href>${xmlEscape(`${calendarHref.endsWith('/') ? calendarHref : `${calendarHref}/`}${encodeURIComponent(uid)}.ics`)}</D:href>`,
+      '    <D:propstat>',
+      '      <D:prop>',
+      `        <D:getetag>${xmlEscape(res.etag)}</D:getetag>`,
+      `        <C:calendar-data>${xmlEscape(res.ics)}</C:calendar-data>`,
+      '      </D:prop>',
+      '      <D:status>HTTP/1.1 200 OK</D:status>',
+      '    </D:propstat>',
+      '  </D:response>',
+    ].join('\r\n'));
+    return [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<D:multistatus xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">',
+      ...rows,
+      '</D:multistatus>',
+    ].join('\r\n');
+  };
+
+  const uidOf = (url) => {
+    try {
+      const path = new URL(String(url)).pathname;
+      const last = path.split('/').filter(Boolean).pop() ?? '';
+      return decodeURIComponent(last.replace(/\.ics$/i, ''));
+    } catch { return null; }
+  };
+
+  async function fetchImpl(url, opts = {}) {
+    const method = String(opts.method ?? 'GET').toUpperCase();
+    if (method === 'REPORT') {
+      calls.reports += 1;
+      return statusResponse(200, multistatus());
+    }
+    if (method === 'PUT') {
+      const uid = uidOf(url);
+      const ifMatch = typeof opts.headers?.['if-match'] === 'string' ? opts.headers['if-match'] : null;
+      const body = typeof opts.body === 'string' ? opts.body : '';
+      const existing = resources.get(uid);
+      const record = { uid, ifMatch, created: !existing };
+      calls.puts.push(record);
+      if (ifMatch) {
+        if (!existing || racingWriter || existing.etag !== ifMatch) {
+          record.status = 412;
+          return statusResponse(412, '<error/>');
+        }
+      }
+      const etag = nextEtag();
+      resources.set(uid, { ics: body, etag });
+      record.status = existing ? 204 : 201;
+      record.etag = etag;
+      return statusResponse(record.status);
+    }
+    if (method === 'DELETE') {
+      const uid = uidOf(url);
+      const ifMatch = typeof opts.headers?.['if-match'] === 'string' ? opts.headers['if-match'] : null;
+      const existing = resources.get(uid);
+      const record = { uid, ifMatch };
+      calls.deletes.push(record);
+      if (!existing) {
+        record.status = 404;
+        return statusResponse(404, '<error/>');
+      }
+      if (ifMatch && existing.etag !== ifMatch) {
+        record.status = 412;
+        return statusResponse(412, '<error/>');
+      }
+      resources.delete(uid);
+      record.status = 204;
+      return statusResponse(204);
+    }
+    return statusResponse(501, '<error/>');
+  }
+
+  return {
+    // Direct store manipulation for simulating Apple-side storage behavior
+    // (user edits, Apple normalization rewrites, etag bumps).
+    store: {
+      uids: () => [...resources.keys()].sort(),
+      has: (uid) => resources.has(String(uid)),
+      icsOf: (uid) => resources.get(String(uid))?.ics ?? null,
+      etagOf: (uid) => resources.get(String(uid))?.etag ?? null,
+      putRaw: (uid, ics, etag) => resources.set(String(uid), { ics: String(ics), etag: etag ?? nextEtag() }),
+      remove: (uid) => { resources.delete(String(uid)); },
+    },
+    calls,
+    fetchImpl,
+  };
 }
