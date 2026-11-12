@@ -71,9 +71,9 @@ test('dashboard rows show source/target chips and the CalDAV target href', () =>
   assert.match(body, />iCloud tgt<\/span>/, 'caldav-target pairs are chipped');
   const twoWayRow = body.split('<tr>').find((r) => r.includes('caldav://caldav.icloud.com/1/calendars/a/'));
   assert.ok(twoWayRow && twoWayRow.includes('>CalDAV</span>'), 'the target cell shows the CalDAV href with a kind chip');
-  const urlRow = body.split('<tr>').find((r) => r.includes('cal-9'));
+  const urlRow = body.split('<tr>').find((r) => r.includes('cal-9') && r.includes('class="namecell"'));
   assert.ok(urlRow && urlRow.includes('cal-9') && !urlRow.includes('iCloud tgt'), 'google-target rows keep showing the calendar id without a CalDAV chip');
-  const oneWayRow = body.split('<tr>').find((r) => r.includes('cal-3'));
+  const oneWayRow = body.split('<tr>').find((r) => r.includes('cal-3') && r.includes('class="namecell"'));
   assert.ok(oneWayRow && oneWayRow.includes('>iCloud</span>') && !oneWayRow.includes('G src'));
 });
 

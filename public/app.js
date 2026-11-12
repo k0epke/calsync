@@ -145,10 +145,13 @@
     var q = document.getElementById('filter-q');
     var cat = document.getElementById('filter-category');
     var st = document.getElementById('filter-status');
+    var tgt = document.getElementById('filter-target');
+    var tgs = document.getElementById('filter-tags');
+    var iv = document.getElementById('filter-interval');
     var clearBtn = document.getElementById('filter-clear');
     var noMatch = document.getElementById('no-pairs-match');
     var counter = document.getElementById('filter-count');
-    if (!table || !q || !cat || !st) return;
+    if (!table || !q || !cat || !st || !tgt || !tgs || !iv) return;
 
     // Row metadata was rendered onto the name cell (server-side), so each
     // row's searchable/filterable facts come from there.
@@ -169,10 +172,18 @@
       return true;
     }
 
+    function intervalValueOf(row) {
+      var td = row.querySelector('td[data-sort-key="interval"]');
+      return td ? String(td.getAttribute('data-sort-value') || '') : '';
+    }
+
     function apply() {
       var qv = String(q.value || '').trim().toLowerCase();
       var cv = String(cat.value || '');
       var sv = String(st.value || '');
+      var tv = String(tgt.value || '');
+      var gv = String(tgs.value || '');
+      var ivv = String(iv.value || '');
       var total = 0;
       var visible = 0;
       pairRows(table).forEach(function (row) {
@@ -186,11 +197,17 @@
         }
         if (show && cv && cell) show = String(cell.getAttribute('data-category') || '') === cv;
         if (show && sv) show = statusMatches(row, sv);
+        if (show && tv && cell) show = String(cell.getAttribute('data-target') || '') === tv;
+        if (show && gv && cell) {
+          var slots = String(cell.getAttribute('data-tag-slots') || '').split(',');
+          show = slots.indexOf(gv) !== -1;
+        }
+        if (show && ivv) show = intervalValueOf(row) === ivv;
         row.style.display = show ? '' : 'none';
         if (show) visible += 1;
       });
       if (noMatch) noMatch.hidden = !(total > 0 && visible === 0);
-      if (counter) counter.textContent = (qv || cv || sv) ? ('showing ' + visible + ' of ' + total + ' pairs') : '';
+      if (counter) counter.textContent = (qv || cv || sv || tv || gv || ivv) ? ('showing ' + visible + ' of ' + total + ' pairs') : '';
     }
 
     function save() {
@@ -198,6 +215,9 @@
         q: String(q.value || ''),
         category: String(cat.value || ''),
         status: String(st.value || ''),
+        target: String(tgt.value || ''),
+        tags: String(tgs.value || ''),
+        interval: String(iv.value || ''),
       }));
     }
 
@@ -207,10 +227,13 @@
       q.value = typeof saved.q === 'string' ? saved.q.slice(0, 200) : '';
       cat.value = CATEGORY_VALUES[saved.category] ? saved.category : '';
       st.value = STATUS_VALUES[saved.status] ? saved.status : '';
+      tgt.value = typeof saved.target === 'string' ? saved.target : '';
+      tgs.value = typeof saved.tags === 'string' ? saved.tags : '';
+      iv.value = typeof saved.interval === 'string' ? saved.interval : '';
     }
 
     q.addEventListener('input', function () { apply(); save(); });
-    [cat, st].forEach(function (el) {
+    [cat, st, tgt, tgs, iv].forEach(function (el) {
       el.addEventListener('change', function () { apply(); save(); });
     });
     if (clearBtn) {
@@ -218,6 +241,9 @@
         q.value = '';
         cat.value = '';
         st.value = '';
+        tgt.value = '';
+        tgs.value = '';
+        iv.value = '';
         lsDel(FILTER_STORE_KEY);
         apply();
       });
