@@ -64,9 +64,13 @@
 
     function visibility() {
       var srcSel = document.querySelector('select[name="source_type"]');
-      show('caldav-picker-source', !!srcSel && srcSel.value === 'caldav');
+      var srcV = srcSel ? srcSel.value : '';
+      show('caldav-picker-source', srcV === 'caldav');
       var rad = document.querySelector('input[name="target_type"]:checked');
       show('caldav-picker-target', !!rad && rad.value === 'caldav');
+      show('sec-source-google', srcV === 'google');
+      var ff = document.getElementById('feed-url-field');
+      if (ff) ff.hidden = srcV === 'google';
     }
 
     function renderList(cfg, data) {
@@ -108,6 +112,11 @@
 
     var srcSel = document.querySelector('select[name="source_type"]');
     if (srcSel) srcSel.addEventListener('change', visibility);
+    var gsel = document.getElementById('calendar_id_source');
+    if (gsel) gsel.addEventListener('change', function () {
+      var f = document.querySelector('input[name="feed_url"]');
+      if (f && gsel.value) f.value = gsel.value;
+    });
     document.querySelectorAll('input[name="target_type"]').forEach(function (r) {
       r.addEventListener('change', visibility);
     });

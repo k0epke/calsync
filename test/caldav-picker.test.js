@@ -57,6 +57,28 @@ test('listIcloudCalendars: 401 errors are redacted (no app password in the messa
   assert.match(r.error, /401/);
 });
 
+test('pair form renders the Google SOURCE calendar dropdown (google:// pair preselected)', () => {
+  const { body } = renderPairForm({
+    pair: { id: 5, name: 'G src', feed_url: 'google://g-source-cal', source_type: 'google', interval_minutes: 30, enabled: 1, target_type: 'caldav', target_url: 'caldav://caldav.icloud.com/1/calendars/a/', created_at: '', updated_at: '' },
+    calendars: [{ id: 'g-source-cal', summary: 'My source calendar' }, { id: 'g-target-cal', summary: 'FamilyCombined' }],
+    googleConnected: true, googleError: null, csrf: 'TOK',
+  });
+  assert.match(body, /id="sec-source-google"/);
+  assert.match(body, /id="feed-url-field"/, 'the raw feed input is addressable for visibility toggling');
+  assert.match(body, /<option value="google:\/\/g-source-cal" selected>/, 'the google-source pair preselects its calendar');
+  assert.match(body, /<option value="google:\/\/g-target-cal" ?>FamilyCombined<\/option>/, 'the account calendars are offered');
+});
+
+test('pair form: a Google source not in the account list is preserved as Current source', () => {
+  const { body } = renderPairForm({
+    pair: { id: 6, name: 'Orphan src', feed_url: 'google://orphan-cal', source_type: 'google', interval_minutes: 30, enabled: 1, target_type: 'caldav', target_url: 'caldav://caldav.icloud.com/1/calendars/a/', created_at: '', updated_at: '' },
+    calendars: [{ id: 'g-target-cal', summary: 'FamilyCombined' }],
+    googleConnected: true, googleError: null, csrf: 'TOK',
+  });
+  assert.match(body, /<option value="google:\/\/orphan-cal" selected>Current source \(orphan-cal\)<\/option>/, 'unlisted sources keep their identity on edit');
+  assert.match(body, /<option value="google:\/\/g-target-cal" ?>FamilyCombined<\/option>/, 'the account calendars are still offered');
+});
+
 test('pair form renders the iCloud calendar picker per side (hidden until CalDAV is selected)', () => {
   const { body } = renderPairForm({ pair: null, calendars: [], googleConnected: true, googleError: null, csrf: 'TOK' });
   assert.match(body, /id="caldav-load-source"/);
