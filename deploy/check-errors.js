@@ -7,5 +7,5 @@ const runs = db.prepare("SELECT id, pair_id, triggered_by, started_at, finished_
 console.log('RECENT_RUNS:', JSON.stringify(runs));
 const counts = db.prepare("SELECT status, COUNT(*) AS n FROM run_log GROUP BY status").all();
 console.log('RUN_COUNTS:', JSON.stringify(counts));
-const pairs = db.prepare('SELECT id, name, feed_url, interval_minutes, enabled FROM pairs').all();
+const pairs = db.prepare('SELECT id, name, feed_url, source_type, target_type, interval_minutes, enabled FROM pairs').all();
 console.log('PAIRS:', JSON.stringify(pairs));
