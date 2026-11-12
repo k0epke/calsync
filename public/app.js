@@ -38,9 +38,50 @@
     targetModeRadios();
     pairTableSort();
     pairTableFilters();
+    caldavListPicker();
     tagDotPreview();
     fadeFlashes();
   });
+
+  function escAdd(v) {
+    return String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  // iCloud calendar picker: load the account's calendars and fill the
+  // source (feed_url) or target (target_url) input on click.
+  function caldavListPicker() {
+    var btn = document.getElementById('caldav-load');
+    var list = document.getElementById('caldav-list');
+    var msg = document.getElementById('caldav-picker-msg');
+    if (!btn || !list || !msg) return;
+    btn.addEventListener('click', function () {
+      msg.textContent = 'Loading iCloud calendars...';
+      fetch('/caldav/calendars').then(function (r) { return r.json(); }).then(function (data) {
+        if (!data || !data.ok) {
+          msg.textContent = (data && data.error) ? data.error : 'Could not load calendars.';
+          list.innerHTML = '';
+          return;
+        }
+        msg.textContent = data.calendars.length ? 'Pick a calendar:' : 'No event calendars found on this iCloud account.';
+        list.innerHTML = data.calendars.map(function (c) {
+          return '<div class="caldav-row"><b>' + escAdd(c.name) + '</b> ' +
+            '<button type="button" class="btn" data-use="source" data-url="' + escAdd(c.caldavUrl) + '">Use as source</button> ' +
+            '<button type="button" class="btn" data-use="target" data-url="' + escAdd(c.caldavUrl) + '">Use as target</button></div>';
+        }).join('');
+        list.querySelectorAll('button[data-use]').forEach(function (b) {
+          b.addEventListener('click', function () {
+            var use = b.getAttribute('data-use');
+            var url = b.getAttribute('data-url');
+            var f = use === 'source' ? document.querySelector('input[name="feed_url"]') : document.querySelector('input[name="target_url"]');
+            if (f) f.value = url;
+            msg.textContent = 'Filled in - save the pair to apply.';
+          });
+        });
+      }).catch(function (e) {
+        msg.textContent = 'Request failed: ' + (e && e.message ? e.message : String(e));
+      });
+    });
+  }
 
   function confirmDialogs() {
     document.querySelectorAll('form[data-confirm]').forEach(function (form) {

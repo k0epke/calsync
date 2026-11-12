@@ -14,7 +14,7 @@ import { fetchFeed, normalizeFeedUrl } from './lib/fetchfeed.js';
 import { planSync } from './lib/planner.js';
 import { parseFeed, ParseError } from './lib/icalparse.js';
 import { createSyncEngine, SyncError, pairSemanticError } from './lib/sync.js';
-import { createIcloudCalDavClient, parseCaldavUrl } from './lib/caldav.js';
+import { createIcloudCalDavClient, parseCaldavUrl, listIcloudCalendars } from './lib/caldav.js';
 import { createAlertServices } from './lib/alerts.js';
 import { resolveTargetLabels } from './lib/labels.js';
 import { normalizeEventFiltersInput } from './lib/filters.js';
@@ -253,6 +253,18 @@ function googleState() {
     redirectUrl: config.googleRedirectUrl,
   };
 }
+
+// JSON list of the account's iCloud calendars for the pair-form picker.
+app.get('/caldav/calendars', async (req, res) => {
+  const result = await listIcloudCalendars({
+    username: config.icloudAppleId,
+    appPassword: config.icloudAppPassword,
+    logger,
+    maxBytes: config.maxFeedBytes,
+    timeoutMs: config.fetchTimeoutMs,
+  });
+  res.status(result.ok ? 200 : 400).json(result);
+});
 
 app.get('/', async (req, res) => {
   // Dashboard organization inputs (render-only): the tag catalog, per-pair

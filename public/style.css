@@ -181,3 +181,7 @@ button.smallbtn { padding: 0.2rem 0.55rem; font-size: 0.8rem; }
   font: inherit; font-size: 0.78rem; padding: 0.25rem 0.3rem;
   border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); max-width: 9ch;
 }
+
+.caldav-list { margin-top: 6px; }
+.caldav-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; flex-wrap: wrap; }
+.caldav-row b { min-width: 90px; }
