@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { renderSettings, renderPairForm, layout } from '../lib/render.js';
+import { renderSettings, renderPairForm, layout, renderLogin } from '../lib/render.js';
 import { renderDashboard } from '../lib/render.js';
 
 test('disconnect form carries the stamped CSRF token (Settings page)', () => {
@@ -35,6 +35,23 @@ test('logout form in layout carries the CSRF token', () => {
   const line = html.split('\n').find((l) => l.includes('action="/logout"'));
   assert.ok(line, 'logout form rendered');
   assert.match(line, /name="_csrf" value="TOK456"/);
+});
+
+test('layout uses the dark lockup (dark-first theme default)', () => {
+  const html = layout({ title: 't', body: '<p>hi</p>', user: null });
+  assert.match(html, /<img class="logo" src="\/assets\/brand\/lockup-on-dark\.svg"/, 'topbar serves lockup-on-dark.svg');
+  assert.ok(!html.includes('lockup-on-light.svg'), 'no light lockup in the topbar');
+});
+
+test('login renders the big primary lockup and the brand tagline', () => {
+  const { body } = renderLogin({ next: '/dash' });
+  assert.match(body, /<img class="login-lockup" src="\/assets\/brand\/lockup-on-dark\.svg" alt="kalsynk">/, 'big primary lockup rendered');
+  assert.match(body, /\/\/ all your calendars are belong to you/, 'brand tagline rendered');
+  // Form logic is unchanged: exact fields, next param, csrf shape.
+  assert.match(body, /action="\/login\?next=%2Fdash"/);
+  assert.match(body, /name="username"[^>]*required/, 'username field kept');
+  assert.match(body, /type="password" name="password"[^>]*required/, 'password field kept');
+  assert.match(body, /<button type="submit" class="primary wide">Sign in<\/button>/);
 });
 
 test('layout tolerates missing csrf (empty token rendered)', () => {

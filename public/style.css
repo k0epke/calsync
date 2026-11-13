@@ -1,18 +1,38 @@
-/* CalSync — small custom stylesheet (no frameworks) */
+/* kalsynk - small custom stylesheet (no frameworks). DARK-FIRST: the brand
+   kit's dark tokens are the DEFAULT theme; a coherent light variant is
+   provided via prefers-color-scheme: light (kit reference values).
+   Note: the brand kit has no red token, so --err uses a GitHub-dark-style
+   red (#F85149) as the chosen error color. */
 :root {
-  --bg: #f4f6f8;
-  --card: #ffffff;
-  --ink: #1d2430;
-  --muted: #67707e;
-  --line: #dfe4ea;
-  --accent: #0b7a54;
-  --accent-ink: #ffffff;
-  --ok: #0b7a54;
-  --warn: #9a6700;
-  --err: #dc2626;
+  --bg: #0E1116;
+  --card: #171C24;
+  --ink: #E6EDF3;
+  --muted: #8B96A5;
+  --line: #2A313C;
+  --accent: #3FE0A0;
+  --accent-ink: #0E1116;
+  --ok: #3FE0A0;
+  --warn: #FFB454;
+  --err: #F85149;
+  --violet: #A78BFA;
+  --row-hover: #1A212B;
   --radius: 10px;
-  --ks-green-dark: #3fe0a0;
-  --ks-violet-dark: #a78bfa;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #F6F8FA;
+    --card: #FFFFFF;
+    --ink: #0E1116;
+    --muted: #57606A;
+    --line: #D0D7DE;
+    --accent: #0B7A54;
+    --accent-ink: #ffffff;
+    --ok: #0B7A54;
+    --warn: #9A6700;
+    --err: #dc2626;
+    --violet: #6D4FD8;
+    --row-hover: #EFF2F6;
+  }
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
@@ -21,27 +41,29 @@ body {
   background: var(--bg); color: var(--ink);
   min-height: 100vh; display: flex; flex-direction: column;
 }
+::selection { background: rgba(63, 224, 160, 0.30); }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 code, .mono { font-family: "JetBrains Mono", ui-monospace, "Cascadia Code", Consolas, Menlo, monospace; font-size: 0.92em; }
 
 .topbar {
   display: flex; align-items: center; gap: 1rem;
-  background: #101726; color: #fff; padding: 0.65rem 1.1rem;
+  background: var(--card); color: var(--ink); padding: 0.65rem 1.1rem;
+  border-bottom: 1px solid var(--line);
 }
 .topbar .brand { font-weight: 700; letter-spacing: 0.02em; display: flex; gap: 0.4rem; align-items: center; }
 .topbar nav { margin-left: auto; display: flex; gap: 0.9rem; align-items: center; }
-.topbar a { color: #c7d2e8; }
-.topbar a:hover { color: #fff; }
-.topbar .linkish { color: #9fb0d0; background: none; border: 0; cursor: pointer; font: inherit; padding: 0; }
-.topbar .linkish:hover { color: #fff; text-decoration: underline; }
+.topbar a { color: var(--muted); }
+.topbar a:hover { color: var(--ink); }
+.topbar .linkish { color: var(--muted); background: none; border: 0; cursor: pointer; font: inherit; padding: 0; }
+.topbar .linkish:hover { color: var(--ink); text-decoration: underline; }
 
 .wrap { flex: 1; width: 100%; max-width: 1180px; margin: 1.2rem auto 2rem; padding: 0 1rem; }
 .footer { text-align: center; color: var(--muted); font-size: 0.85rem; padding: 0.8rem 0 1.2rem; }
 
 .card {
   background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
-  padding: 1.1rem 1.25rem; margin-bottom: 1rem; box-shadow: 0 1px 2px rgba(16, 23, 38, 0.05);
+  padding: 1.1rem 1.25rem; margin-bottom: 1rem; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 .card.narrow { max-width: 640px; }
 .card h1 { font-size: 1.25rem; margin: 0 0 0.7rem; }
@@ -57,34 +79,36 @@ code, .mono { font-family: "JetBrains Mono", ui-monospace, "Cascadia Code", Cons
 .empty { color: var(--muted); padding: 0.6rem 0; }
 
 .flash { padding: 0.6rem 0.9rem; border-radius: 8px; margin-bottom: 0.8rem; border: 1px solid; }
-.flash-ok { background: #eefbf0; border-color: #bfe8c6; color: #14532d; }
-.flash-err { background: #fdf0ef; border-color: #f3c1bd; color: #7f1d1d; }
+.flash-ok { background: rgba(63, 224, 160, 0.12); border-color: rgba(63, 224, 160, 0.40); color: var(--ok); }
+.flash-err { background: rgba(248, 81, 73, 0.12); border-color: rgba(248, 81, 73, 0.40); color: var(--err); }
+.flash-info { background: rgba(167, 139, 250, 0.12); border-color: rgba(167, 139, 250, 0.40); color: var(--violet); }
 
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
 thead th { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); border-bottom: 2px solid var(--line); }
-tbody tr:hover { background: #f8fafc; }
+tbody tr:hover { background: var(--row-hover); }
 .namecell strong { font-size: 1rem; }
 
 .chip {
   display: inline-block; padding: 0.1rem 0.55rem; border-radius: 999px;
-  font-size: 0.75rem; font-weight: 600; background: #e7eaf0; color: #4b5563;
+  font-size: 0.75rem; font-weight: 600; background: var(--bg); color: var(--muted);
+  border: 1px solid var(--line);
 }
-.chip-ok { background: #dcfce7; color: #166534; }
-.chip-warn { background: #fef3c7; color: #92400e; }
-.chip-err { background: #fee2e2; color: #991b1b; }
-.chip-running { background: #dbeafe; color: #1e40af; }
+.chip-ok { background: rgba(63, 224, 160, 0.12); color: var(--ok); }
+.chip-warn { background: rgba(255, 180, 84, 0.12); color: var(--warn); }
+.chip-err { background: rgba(248, 81, 73, 0.12); color: var(--err); }
+.chip-running { background: rgba(167, 139, 250, 0.12); color: var(--violet); }
 
 button, .btn {
-  font: inherit; border: 1px solid var(--line); background: #fff; color: var(--ink);
+  font: inherit; border: 1px solid var(--line); background: transparent; color: var(--ink);
   border-radius: 8px; padding: 0.3rem 0.75rem; cursor: pointer; text-decoration: none;
   display: inline-flex; align-items: center; gap: 0.3rem;
 }
-button:hover, .btn:hover { border-color: #b9c2cd; background: #f6f8fa; text-decoration: none; }
+button:hover, .btn:hover { border-color: var(--muted); background: var(--row-hover); text-decoration: none; }
 button.primary, .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
-button.primary:hover, .btn.primary:hover { background: #1d4fd8; }
+button.primary:hover, .btn.primary:hover { background: var(--accent); filter: brightness(1.08); }
 button.danger { color: var(--err); }
-button.danger:hover { border-color: var(--err); background: #fdf0ef; }
+button.danger:hover { border-color: var(--err); background: rgba(248, 81, 73, 0.12); }
 button.wide { width: 100%; justify-content: center; }
 button.linkish { border: 0; background: none; }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -95,24 +119,29 @@ form.inline { display: inline-flex; gap: 0.3rem; }
 .field > label, .field legend { display: block; font-weight: 600; margin-bottom: 0.3rem; }
 .field input[type="text"], .field input[type="password"], .field select {
   width: 100%; font: inherit; padding: 0.45rem 0.6rem; border: 1px solid var(--line);
-  border-radius: 8px; background: #fff; color: var(--ink);
+  border-radius: 8px; background: var(--card); color: var(--ink);
 }
-.field input:focus, .field select:focus { outline: 2px solid #bfdbfe; border-color: var(--accent); }
+.field input:focus, .field select:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
 fieldset.field { border: 1px solid var(--line); border-radius: var(--radius); padding: 0.7rem 0.9rem; }
 fieldset .radio { margin: 0.5rem 0; }
 fieldset .radio > label { font-weight: 500; }
 .subfield { margin: 0.35rem 0 0.2rem 1.6rem; }
-.subfield input, .subfield select { width: calc(100% - 1.6rem); font: inherit; padding: 0.4rem 0.55rem; border: 1px solid var(--line); border-radius: 8px; }
+.subfield input, .subfield select { width: calc(100% - 1.6rem); font: inherit; padding: 0.4rem 0.55rem; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); }
 .actions-row { display: flex; gap: 0.6rem; margin-top: 1rem; align-items: center; }
 
 .errdetails summary { cursor: pointer; color: var(--err); font-size: 0.82rem; }
 .errdetails pre {
-  background: #1f2430; color: #f4c7c3; border-radius: 8px; padding: 0.6rem 0.8rem;
+  background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 0.6rem 0.8rem;
   overflow: auto; max-width: 60ch; font-size: 0.78rem; white-space: pre-wrap;
 }
 
 .login-card { margin: 3rem auto; }
 .login-card .muted { margin-top: 0; }
+.login-lockup { width: min(320px, 80%); display: block; margin: 0 auto 1.2rem; }
+.login-tagline {
+  font-family: "JetBrains Mono", ui-monospace, "Cascadia Code", Consolas, Menlo, monospace;
+  font-size: 0.85rem; text-align: center; margin: 0 0 1.1rem;
+}
 
 @media (max-width: 760px) {
   .ellipsis { max-width: 20ch; }
@@ -138,11 +167,11 @@ th.sort-asc .sort-arrow, th.sort-desc .sort-arrow { color: var(--accent); }
 .filterbar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.6rem; }
 .filterbar input[type="search"] {
   flex: 1 1 220px; max-width: 360px; font: inherit; padding: 0.4rem 0.6rem;
-  border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink);
+  border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink);
 }
 .filterbar select {
   font: inherit; font-size: 0.9rem; padding: 0.4rem 0.5rem;
-  border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink);
+  border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink);
 }
 #filter-count { min-width: 12ch; }
 
@@ -154,7 +183,7 @@ th.sort-asc .sort-arrow, th.sort-desc .sort-arrow { color: var(--accent); }
 }
 .color-dot {
   display: inline-block; width: 16px; height: 16px; border-radius: 50%;
-  border: 1px solid rgba(0, 0, 0, 0.25); vertical-align: middle; flex: 0 0 auto;
+  border: 1px solid var(--line); vertical-align: middle; flex: 0 0 auto;
 }
 .color-dot.small { width: 12px; height: 12px; }
 
@@ -176,11 +205,11 @@ button.smallbtn { padding: 0.2rem 0.55rem; font-size: 0.8rem; }
 .tag-slot-label { font-size: 0.8rem; color: var(--muted); flex: 0 0 auto; white-space: nowrap; }
 .tag-slot-row input[type="text"] {
   flex: 1 1 auto; min-width: 8ch; font: inherit; font-size: 0.85rem;
-  padding: 0.3rem 0.5rem; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink);
+  padding: 0.3rem 0.5rem; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink);
 }
 .tag-slot-row select {
   font: inherit; font-size: 0.78rem; padding: 0.25rem 0.3rem;
-  border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); max-width: 9ch;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); max-width: 9ch;
 }
 
 .caldav-list { margin-top: 6px; }
