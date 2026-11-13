@@ -12,7 +12,7 @@ import { openDatabase, TAG_PALETTE } from '../lib/db.js';
 import {
   parseTagUpdateForm, parsePairTagForm, makeSaveTagsHandler, makePairTagsHandler, TAG_NAME_MAX,
 } from '../lib/tags.js';
-import { renderDashboard, renderRuns, deriveCategory, lastRunFormatOf } from '../lib/render.js';
+import { renderDashboard, renderSettings, renderRuns, deriveCategory, lastRunFormatOf } from '../lib/render.js';
 import { createSyncEngine } from '../lib/sync.js';
 import { planSync } from '../lib/planner.js';
 import { parseFeed } from '../lib/icalparse.js';
@@ -495,9 +495,9 @@ test('render: rows carry the data attributes the client sort and filter read', (
   assert.match(rRow, /data-sort-key="interval" data-sort-value="360"/);
 });
 
-test('render: tags manager with 10 slot rows, palette selects, one save form and the scope note', () => {
+test('render: tags manager with 10 slot rows, palette selects, one save form and the scope note (Settings page)', () => {
   const catalog = Array.from({ length: 10 }, (_, i) => ({ slot: i + 1, name: i === 0 ? 'Work' : null, color: EXPECTED_PALETTE[i] }));
-  const { body } = renderDashboard({ pairs: [basePair()], google: googleStateStub(), tags: catalog, csrf: 'TOK123' });
+  const { body } = renderSettings({ google: googleStateStub(), tags: catalog, csrf: 'TOK123' });
   assert.match(body, /<div class="card" id="tag-manager">/);
   assert.match(body, /Tags organize the dashboard only; they are not attached to synced events\./);
   assert.match(body, /<form method="post" action="\/tags">/, 'single Save form for the whole manager');
@@ -543,8 +543,35 @@ test('render: per-pair tag checkboxes only for named slots, assigned rendered ch
 
 test('render: pair tag cell without any named slot shows guidance and no form', () => {
   const { body } = renderDashboard({ pairs: [basePair({ id: 2 })], google: googleStateStub(), tags: [], csrf: 'TOK' });
-  assert.match(body, /No named tag slots yet - name them in the Tags manager above\./);
+  assert.match(body, /No named tag slots yet - name them on the <a href="\/settings">Settings<\/a> page\./);
   assert.ok(!body.includes('/pairs/2/tags'), 'no assignment form when nothing is assignable');
+});
+
+test('render: Settings page hosts the Google card in all three states', () => {
+  // configured + connected: email, disconnect form, redirect URI
+  const connected = renderSettings({
+    google: { configured: true, connected: true, email: 'x@example.com', redirectUrl: 'https://r/cb' },
+    tags: [], csrf: 'TOK',
+  });
+  assert.equal(connected.title, 'Settings');
+  assert.match(connected.body, /Google connected as <b>x@example\.com<\/b>/);
+  assert.match(connected.body, /action="\/oauth\/disconnect"/, 'disconnect form on Settings');
+  assert.match(connected.body, /data-confirm="Disconnect the Google account/, 'disconnect confirm dialog');
+  assert.match(connected.body, /<span class="mono">https:\/\/r\/cb<\/span>/, 'redirect URI shown');
+
+  // configured + not connected: connect CTA
+  const unconnected = renderSettings({
+    google: { configured: true, connected: false, email: null, redirectUrl: 'https://r/cb' },
+    tags: [], csrf: 'TOK',
+  });
+  assert.match(unconnected.body, /href="\/oauth\/start"/, 'connect CTA on Settings');
+
+  // not configured: setup hint
+  const unconfigured = renderSettings({
+    google: { configured: false, connected: false, email: null, redirectUrl: 'https://r/cb' },
+    tags: [], csrf: 'TOK',
+  });
+  assert.match(unconfigured.body, /Google OAuth is not configured/);
 });
 
 test('renderRuns: run history shows the precise sniffed format line', () => {

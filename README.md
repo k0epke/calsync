@@ -466,15 +466,24 @@ changes sync behavior.
   newest run recorded one of them renders exactly **ICS feed
   (auto-detected)**, with a tooltip; the run history detail line records the
   precise format of every run.
-- **Tags.** Ten fixed, customizable color-coded slots, managed in the
-  compact **Tags** block above the pairs table: rename inline and recolor
+- **Tags.** Ten fixed, customizable color-coded slots, managed on the
+  **Settings** page (`/settings`, linked from the topnav and from a
+  Settings button next to "+ New sync pair" on the dashboard): rename
+  inline and recolor
   from the same fixed 10-color palette, applied by one Save form
-  (`POST /tags`, CSRF-protected). Pairs can be assigned any named tag(s)
-  from the per-pair collapsible Tags section - a server-rendered POST form
+  (`POST /tags`, CSRF-protected, redirects back to Settings). Pairs can be
+  assigned any named tag(s)
+  from the per-pair collapsible Tags section on the dashboard - a
+  server-rendered POST form
   (`POST /pairs/:id/tags`, CSRF-protected) that needs no JavaScript;
   assigned tags render as colored chips in each row. Unassign = uncheck
   (omit). Colors are validated against the fixed palette; only slots with a
   non-empty name are assignable.
+- **Settings page.** Besides the Tags manager, `/settings` also hosts the
+  **Google account card** (connect / connected-as / disconnect and the
+  redirect-URI display, moved off the dashboard; `POST /oauth/disconnect`
+  returns to Settings). The dashboard keeps only the pairs table plus the
+  per-pair tag pickers.
 
 **Scope note:** Tags organize the dashboard only; they are not attached to
 synced events and the sync engine never reads them. (Attaching tags to

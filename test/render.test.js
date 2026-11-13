@@ -1,16 +1,33 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { renderDashboard, renderPairForm, layout } from '../lib/render.js';
+import { renderSettings, renderPairForm, layout } from '../lib/render.js';
+import { renderDashboard } from '../lib/render.js';
 
-test('disconnect form carries the stamped CSRF token', () => {
-  const { body } = renderDashboard({
-    pairs: [],
+test('disconnect form carries the stamped CSRF token (Settings page)', () => {
+  const { body } = renderSettings({
     google: { configured: true, connected: true, email: 'x@example.com', redirectUrl: 'https://kalsync.koepke.tech/oauth/callback' },
+    tags: [],
     csrf: 'TOK123',
   });
   const line = body.split('\n').find((l) => l.includes('action="/oauth/disconnect"'));
   assert.ok(line, 'disconnect form rendered');
   assert.match(line, /name="_csrf" value="TOK123"/);
+});
+
+test('dashboard keeps no Google box or tag manager but links to Settings', () => {
+  const { body } = renderDashboard({
+    pairs: [],
+    google: { configured: true, connected: true, email: 'x@example.com', redirectUrl: 'https://kalsync.koepke.tech/oauth/callback' },
+    tags: [],
+    csrf: 'TOK',
+  });
+  assert.ok(!body.includes('oauth/disconnect') && !body.includes('oauth/start'), 'no Google box on the dashboard');
+  assert.ok(!body.includes('tag-manager'), 'no tag manager on the dashboard');
+  assert.match(body, /href="\/settings"/, 'Settings link present');
+  const html = layout({ title: 'Dashboard', body, user: 'admin', csrf: 'TOK' });
+  assert.match(html, /<a href="\/settings">Settings<\/a>/, 'topnav Settings link between Dashboard and Add sync pair');
+  assert.ok(html.indexOf('<a href="/">Dashboard</a>') < html.indexOf('<a href="/settings">Settings</a>'), 'Settings after Dashboard in nav');
+  assert.ok(html.indexOf('<a href="/settings">Settings</a>') < html.indexOf('<a href="/pairs/new"'), 'Settings before Add sync pair in nav');
 });
 
 test('logout form in layout carries the CSRF token', () => {

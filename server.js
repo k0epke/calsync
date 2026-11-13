@@ -26,7 +26,7 @@ import {
   createOAuthClient, authUrlFor, GoogleCalendarClient, google as googleClientLib,
   parseGoogleSourceUrl, googleSourceUrlOf,
 } from './lib/google.js';
-import { renderLogin, renderDashboard, renderPairForm, renderRuns, renderError, layout, esc } from './lib/render.js';
+import { renderLogin, renderDashboard, renderSettings, renderPairForm, renderRuns, renderError, layout, esc } from './lib/render.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -153,9 +153,17 @@ function redirectWith(res, params) {
   res.redirect(303, `/${qs.toString() ? `?${qs.toString()}` : ''}`);
 }
 
+// Like redirectWith but returns the user to the Settings page (the tag
+// manager and the Google connection card live there now).
+function redirectWithSettings(res, params) {
+  const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v != null && v !== ''));
+  res.redirect(303, `/settings${qs.toString() ? `?${qs.toString()}` : ''}`);
+}
+
 // Pages are rendered through small factories so every route stays terse.
 const renderFactory = {
   Dashboard: ({ pairs, google, tags, csrf }) => renderDashboard({ pairs, google, tags, csrf }),
+  Settings: ({ google, tags, csrf }) => renderSettings({ google, tags, csrf }),
   PairForm: ({ pair, calendars, googleConnected, googleError, csrf }) => renderPairForm({ pair, calendars, googleConnected, googleError, csrf }),
   Runs: ({ pair, runs }) => renderRuns({ pair, runs }),
   Login: ({ next }) => renderLogin({ next }),
@@ -284,6 +292,11 @@ app.get('/', async (req, res) => {
     target_label: targetLabels.get(String(p.id)) ?? null,
   }));
   page(req, res, 'Dashboard', { pairs, google: googleState(), tags },
+    { msg: req.query.msg, err: req.query.err });
+});
+
+app.get('/settings', (req, res) => {
+  page(req, res, 'Settings', { google: googleState(), tags: db.listTags() },
     { msg: req.query.msg, err: req.query.err });
 });
 
@@ -522,7 +535,7 @@ app.get('/pairs/:id/runs', (req, res) => {
 // Same session/CSRF/flash-redirect patterns as every other POST (the global
 // CSRF guard + auth gate already ran; the handlers parse, validate, and
 // redirect with a flash). Tags are dashboard state and never leave it.
-app.post('/tags', makeSaveTagsHandler(db, redirectWith));
+app.post('/tags', makeSaveTagsHandler(db, redirectWithSettings));
 app.post('/pairs/:id/tags', makePairTagsHandler(db, redirectWith, page404));
 
 // --- Google OAuth ------------------------------------------------------------------
@@ -561,7 +574,7 @@ app.get('/oauth/callback', async (req, res) => {
 
 app.post('/oauth/disconnect', (req, res) => {
   db.clearGoogleAccount();
-  redirectWith(res, { msg: 'Google account disconnected. Refresh token removed from local database.' });
+  redirectWithSettings(res, { msg: 'Google account disconnected. Refresh token removed from local database.' });
 });
 
 // --- fallbacks ----------------------------------------------------------------------
