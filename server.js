@@ -16,7 +16,7 @@ import { parseFeed, ParseError } from './lib/icalparse.js';
 import { createSyncEngine, SyncError, pairSemanticError } from './lib/sync.js';
 import { createIcloudCalDavClient, parseCaldavUrl, listIcloudCalendars } from './lib/caldav.js';
 import { createAlertServices } from './lib/alerts.js';
-import { resolveTargetLabels } from './lib/labels.js';
+import { resolveTargetLabels, resolveIdLabels } from './lib/labels.js';
 import { normalizeEventFiltersInput } from './lib/filters.js';
 import { normalizeCopyMode } from './lib/copymode.js';
 import { syncFieldMaskFromForm } from './lib/syncfields.js';
@@ -284,12 +284,24 @@ app.get('/', async (req, res) => {
   const tagMap = db.tagMapForPairs();
   const lastRunDetails = db.lastRunDetailByPair();
   const gclient = typeof currentGoogleClient === 'function' ? currentGoogleClient() : null;
-  const targetLabels = await resolveTargetLabels({ db, googleClient: gclient, pairs: db.listPairsWithStatus(), logger });
-  const pairs = db.listPairsWithStatus().map((p) => ({
+  const pairsEnriched = db.listPairsWithStatus();
+  const targetLabels = await resolveTargetLabels({ db, googleClient: gclient, pairs: pairsEnriched, logger });
+  // Source labels for google:// sources (same cache, same fallback rules).
+  const sourceIds = [...new Set(pairsEnriched
+    .filter((p) => p.source_type === 'google')
+    .map((p) => String(p.feed_url ?? '').startsWith('google://')
+      ? String(p.feed_url).slice('google://'.length).trim()
+      : '')
+    .filter(Boolean))];
+  const sourceIdLabels = await resolveIdLabels({ db, googleClient: gclient, ids: sourceIds, logger });
+  const pairs = pairsEnriched.map((p) => ({
     ...p,
     tags: tagMap.get(Number(p.id)) ?? [],
     last_run_detail: lastRunDetails.get(Number(p.id)) ?? null,
     target_label: targetLabels.get(String(p.id)) ?? null,
+    source_label: p.source_type === 'google' && String(p.feed_url ?? '').startsWith('google://')
+      ? (sourceIdLabels.get(String(p.feed_url).slice('google://'.length).trim()) ?? null)
+      : null,
   }));
   page(req, res, 'Dashboard', { pairs, google: googleState(), tags },
     { msg: req.query.msg, err: req.query.err });

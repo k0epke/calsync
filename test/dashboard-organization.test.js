@@ -409,10 +409,13 @@ function googleStateStub() {
 function rowFor(body, name) {
   return body.split('<tr>').find((r) => r.includes(`data-name="${name}"`));
 }
+function matchRowChip(row, text, msg) {
+  assert.ok(row.includes(`>${text}</span>`), msg ?? `chip text ${text} present in the row`);
+}
 
-test('render: six sortable headers with data-sort-key + arrows; plain Tags/Synced/Actions headers', () => {
+test('render: five sortable headers...; no Status column anywhere', () => {
   const { body } = renderDashboard({ pairs: [basePair()], google: googleStateStub(), tags: [], csrf: 'TOK' });
-  for (const key of ['name', 'category', 'target', 'interval', 'status', 'last_run']) {
+  for (const key of ['name', 'category', 'target', 'interval', 'last_run']) {
     const line = body.split('\n').find((l) => l.includes(`th class="sortable" data-sort-key="${key}"`));
     assert.ok(line, `${key} header rendered with its sort key`);
     assert.match(line, /class="th-sort" data-sort-key=/, 'button carries the key for a11y/clicks');
@@ -439,7 +442,7 @@ test('render: filter bar with search, category + status pickers, clear button an
   assert.match(body, /id="no-pairs-match"[^>]*hidden/, 'no-pairs-match line renders hidden');
 });
 
-test('render: Source column shows the short token per shape, tooltip for the auto-detected sub-format', () => {
+test('render: Source column chip per shape, tooltip for the auto-detected sub-format', () => {
   const pairs = [
     basePair({ id: 1, name: 'G', feed_url: 'google://g1', source_type: 'google' }),
     basePair({ id: 2, name: 'C', feed_url: 'caldav://caldav.icloud.com/1/calendars/a/', source_type: 'caldav', calendar_id: 'cal-2' }),
@@ -449,25 +452,27 @@ test('render: Source column shows the short token per shape, tooltip for the aut
   ];
   const { body } = renderDashboard({ pairs, google: googleStateStub(), tags: [], csrf: 'TOK' });
 
-  const expectSource = (row, key, extra = '') => {
-    assert.match(row, new RegExp(`data-sort-key="category" data-sort-value="${key}"${extra}><span class="mono">${key}</span></td>`), `Source cell shows the short key ${key}`);
+  const expectChip = (row, text) => {
+    const chip = (row.match(/data-sort-key="category"[^>]*><span class="chip"[^>]*>([^<]*)<\/span><\/td>/) || [])[1];
+    assert.equal(chip, text, `source cell chip text is ${text}`);
   };
   const gRow = rowFor(body, 'G');
   assert.match(gRow, /class="namecell" data-name="G"[^>]*data-category="google"/, 'row-level category attribute doubles as the filter target');
-  expectSource(gRow, 'google');
+  assert.match(gRow, /title="google:\/\/g1"/, 'full feed_url lives in the chip tooltip');
+  expectChip(gRow, 'g1');
   const cRow = rowFor(body, 'C');
   assert.match(cRow, /data-category="caldav"/);
-  expectSource(cRow, 'caldav');
+  expectChip(cRow, 'a');
   const wRow = rowFor(body, 'W');
   assert.match(wRow, /data-category="webcal"/);
-  expectSource(wRow, 'webcal');
+  expectChip(wRow, 'webcal://e...');
   const iRow = rowFor(body, 'I');
   assert.match(iRow, /data-category="ics"/);
-  expectSource(iRow, 'ics');
+  expectChip(iRow, 'https://ex...');
   const vRow = rowFor(body, 'V');
-  expectSource(vRow, 'ics', ' title="The sub-format \\(VCS, XCal or JCal\\) is auto-detected[^"]*"');
+  expectChip(vRow, 'https://ex...');
   assert.match(vRow, /title="The sub-format \(VCS, XCal or JCal\) is auto-detected/, 'tooltip note attached as the cell title');
-  assert.ok(!body.includes('cat-chip'), 'no chip wrapper on the Source cell');
+  assert.ok(!body.includes('cat-chip'), 'no cat-chip wrapper on the Source cell');
 });
 
 test('render: rows carry the data attributes the client sort and filter read', () => {
@@ -485,15 +490,14 @@ test('render: rows carry the data attributes the client sort and filter read', (
   assert.match(pRow, /data-status=""/, 'no run yet');
   assert.match(pRow, /data-sort-key="name" data-sort-value="P"/);
   assert.match(pRow, /data-sort-key="interval" data-sort-value="60"/);
-  assert.match(pRow, /data-sort-key="status" data-sort-value="0"/, 'no run yet sorts first (attention rank 0)');
   assert.match(pRow, /data-sort-key="last_run" data-sort-value="9999-12-31T23:59:59Z"/, 'never-run pinned last ascending');
 
   const eRow = rowFor(body, 'E');
   assert.match(eRow, /data-status="error"/);
-  assert.match(eRow, /data-sort-key="status" data-sort-value="4"/, 'error ranks deepest');
+  matchRowChip(eRow, 'error', 'error state surfaces as the chip in Last run');
   const dRow = rowFor(body, 'D');
   assert.match(dRow, /data-enabled="0"/);
-  assert.match(dRow, /data-sort-key="status" data-sort-value="0"/, 'paused ranks 0 regardless of last status');
+  matchRowChip(dRow, 'paused', 'paused state surfaces as the chip in Last run');
   const rRow = rowFor(body, 'R');
   assert.match(rRow, /data-sort-key="last_run" data-sort-value="2026-11-10T00:00:00\.000Z"/);
   assert.match(rRow, /data-sort-key="interval" data-sort-value="360"/);
@@ -654,7 +658,7 @@ test('vcs-marked content labels a url+http(s) pair as "ICS feed (auto-detected)"
     const lastDetails = db.lastRunDetailByPair();
     const enriched = [{ ...pair, last_run_detail: lastDetails.get(Number(pair.id)) ?? null, tags: [] }];
     const { body } = renderDashboard({ pairs: enriched, google: googleStateStub(), tags: [], csrf: 'T' });
-    assert.match(body, /data-sort-value="ics"[^>]*><span class="mono">ics<\/span><\/td>/, 'runtime-detected sub-format renders the ics token');
+    assert.match(body, /data-sort-value="ics"[^>]*><span class="chip"[^>]*>https:\/\/fe...<\/span><\/td>/, 'runtime-detected sub-format keeps the ics key and renders the source chip');
     assert.match(body, /title="The sub-format \(VCS, XCal or JCal\) is auto-detected/);
   });
 });

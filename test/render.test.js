@@ -42,7 +42,7 @@ test('layout tolerates missing csrf (empty token rendered)', () => {
   assert.match(html, /name="_csrf" value=""/);
 });
 
-test('dashboard shows the Source short token per source type, no chips anywhere', () => {
+test('dashboard shows the Source chip per source type with the full feed_url in its title', () => {
   const base = {
     id: 1, name: 'P', feed_url: 'caldav://caldav.icloud.com/1/calendars/a/', calendar_id: 'c',
     interval_minutes: 360, enabled: 1, synced_count: 0,
@@ -51,6 +51,7 @@ test('dashboard shows the Source short token per source type, no chips anywhere'
     pairs: [
       { ...base, source_type: 'caldav' },
       { ...base, id: 2, name: 'URL pair', feed_url: 'https://feed.example/x.ics', source_type: 'url' },
+      { ...base, id: 3, name: 'Long URL', feed_url: 'https://verylongurl.example/some/path/feed.ics', source_type: 'url' },
     ],
     google: { configured: true, connected: true, email: 'x@example.com', redirectUrl: 'https://kalsync.koepke.tech/oauth/callback' },
     csrf: 'TOK',
@@ -58,12 +59,13 @@ test('dashboard shows the Source short token per source type, no chips anywhere'
   const caldavRow = body.split('<tr>').find((r) => r.includes('caldav://caldav.icloud.com/1/calendars/a/'));
   assert.ok(caldavRow, 'the caldav pair row rendered');
   assert.match(caldavRow, /data-category="caldav"/, 'row keeps the data-category attribute the filter reads');
-  assert.match(caldavRow, /data-sort-value="caldav"><span class="mono">caldav<\/span>/, 'Source cell shows the short key as plain mono text');
-  const urlRow = body.split('<tr>').find((r) => r.includes('https://feed.example/x.ics') || r.includes('data-name="URL pair"'));
+  assert.match(caldavRow, /<td data-sort-key="category" data-sort-value="caldav"><span class="chip" title="caldav:\/\/caldav.icloud.com\/1\/calendars\/a\/">a<\/span><\/td>/, 'Source cell shows the URL tail chip with the full feed_url tooltip');
+  const urlRow = body.split('<tr>').find((r) => r.includes('https://feed.example/x.ics'));
   assert.ok(urlRow, 'the url pair row rendered');
-  assert.match(urlRow, /data-sort-value="ics"><span class="mono">ics<\/span>/, 'url pairs derive the ics token');
+  assert.match(urlRow, /<span class="chip" title="https:\/\/feed\.example\/x\.ics">https:\/\/fe...<\/span>/, 'url sources show the first 10 chars of feed_url');
+  const longRow = body.split('<tr>').find((r) => r.includes('https://verylongurl.example'));
+  assert.match(longRow, /<span class="chip" title="https:\/\/verylongurl\.example[^"]*">https:\/\/ve...<\/span>/, 'truncated URLs get an ASCII ellipsis suffix and keep the full URL as the tooltip');
   assert.ok(!body.includes('cat-chip'), 'no cat-chip wrapper remains');
-  assert.ok(body.split('<tr>').every((r) => !r.includes('class="chip"') || true), 'rows carry no decorative chips');
 });
 
 // --- two-way dashboard surface -------------------------------------------------
@@ -91,9 +93,9 @@ test('dashboard rows keep target data attrs, raw href tooltip and CalDAV/Google 
   });
   assert.match(body, /data-target="CalDAV - a"/, 'qualified target label exposed for the filter');
   const twoWayRow = body.split('<tr>').find((r) => r.includes('caldav://caldav.icloud.com/1/calendars/a/'));
-  assert.ok(twoWayRow && twoWayRow.includes('CalDAV - '), 'the target cell still shows the qualified label');
+  assert.ok(twoWayRow && twoWayRow.includes('<span class="mono small">caldav</span> <span class="chip" title="caldav://caldav.icloud.com/1/calendars/a/">a</span>'), 'the target cell shows plain type text + the unprefixed name chip');
   assert.ok(twoWayRow && twoWayRow.includes('title="caldav://caldav.icloud.com/1/calendars/a/"'), 'raw href stays in the tooltip');
-  assert.ok(!twoWayRow.includes('>CalDAV</span>'), 'no trailing CalDAV kind chip');
+  assert.ok(!twoWayRow.includes('>CalDAV - a<'), 'no prefixed qualified text in the visible target cell');
   const urlRow = body.split('<tr>').find((r) => r.includes('cal-9') && r.includes('class="namecell"'));
   assert.ok(urlRow && urlRow.includes('data-target="Google - cal-9"'), 'google-target rows keep the qualified label in the data attr');
   const oneWayRow = body.split('<tr>').find((r) => r.includes('cal-3') && r.includes('class="namecell"'));
@@ -147,7 +149,7 @@ test('dashboard rows carry no filter chips; filter state lives in the filter bar
     assert.ok(!row.includes('>inc:'), `row ${n} shows no include chips`);
     assert.ok(!row.includes('>exc:'), `row ${n} shows no exclude chips`);
     const chips = row.match(/<span class="chip/g) ?? [];
-    assert.equal(chips.length, 1, `row ${n} carries exactly one chip: the status chip`);
+    assert.equal(chips.length, 3, `row ${n} carries exactly three chips: the source chip, the target name chip and the status chip in Last run`);
     assert.ok(!row.includes('mono ellipsis'), `row ${n} has no feed-url line`);
     assert.match(row, /<strong>/, `row ${n} keeps the strong name`);
   }
@@ -171,31 +173,32 @@ test('dashboard rows keep the copy mode out of the chips; the option lives in th
   for (const n of ['P', 'Q', 'R', 'S']) {
     const row = body.split('<tr>').find((r) => r.includes(`data-name="${n}"`));
     const chipSpans = (row.match(/<span class="chip/g) || []).length;
-    assert.equal(chipSpans, 1, `row ${n} carries exactly one chip: the status chip`);
+    assert.equal(chipSpans, 3, `row ${n} carries exactly three chips: the source chip, the target name chip and the status chip`);
   }
 });
 
-test('status column shows paused for disabled pairs (and only there)', () => {
+test('status chip lives in the Last run cell; paused shows there for disabled pairs', () => {
   const base = { id: 1, name: 'P', feed_url: 'https://f/x.ics', calendar_id: 'c', interval_minutes: 360, enabled: 1, synced_count: 0, source_type: 'url' };
   const { body } = renderDashboard({
     pairs: [
-      { ...base, last_status: 'success' },
-      { ...base, id: 2, name: 'Off', enabled: 0, last_status: 'success' },
-      { ...base, id: 3, name: 'OffErr', enabled: 0, last_status: 'error' },
-      { ...base, id: 4, name: 'OffNoRun', enabled: 0 },
+      { ...base, last_status: 'success', last_run_at: '2026-11-12T05:00:00Z' },
+      { ...base, id: 2, name: 'Off', enabled: 0, last_status: 'success', last_run_at: '2026-11-12T05:00:00Z' },
+      { ...base, id: 3, name: 'OffErr', enabled: 0, last_status: 'error', last_run_at: '2026-11-12T05:00:00Z' },
+      { ...base, id: 4, name: 'OffNoRun', enabled: 0, last_run_at: '2026-11-12T05:00:00Z' },
     ],
     google: { configured: true, connected: true, email: 'x@example.com', redirectUrl: 'https://kalsync.koepke.tech/oauth/callback' },
     csrf: 'TOK',
   });
   const onRow = body.split('<tr>').find((r) => r.includes('data-enabled="1"'));
-  assert.match(onRow, /chip-ok">ok<\/span>/, 'enabled pair keeps the status chip');
+  assert.match(onRow, /chip-ok">ok<\/span>/, 'enabled pair keeps the status chip (in Last run now)');
   assert.ok(!onRow.includes('>paused<'), 'enabled pairs never show paused');
   for (const n of ['Off', 'OffErr', 'OffNoRun']) {
     const row = body.split('<tr>').find((r) => r.includes(`data-name="${n}"`));
     assert.ok(row, `row ${n} rendered`);
     assert.ok(row.includes('data-enabled="0"'), 'data-enabled attr unchanged (client filter dependency)');
-    assert.match(row, /<span class="chip">paused<\/span>/, `disabled pair ${n} shows the paused chip in the Status column`);
+    assert.match(row, /<span class="chip">paused<\/span>/, `disabled pair ${n} shows the paused chip in the Last run cell`);
     assert.ok(!row.includes('chip-ok') && !row.includes('chip-err'), 'paused hides the stale run-status look');
+    assert.ok(row.includes('data-sort-key="last_run"') && row.includes('last ok:'), 'the chip sits inside the last-run cell');
   }
 });
 

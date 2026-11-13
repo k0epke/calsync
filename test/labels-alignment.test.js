@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { openDatabase } from '../lib/db.js';
 import { dashboardPage } from '../lib/render.js';
-import { resolveTargetLabels } from '../lib/labels.js';
+import { resolveTargetLabels, resolveIdLabels } from '../lib/labels.js';
 
 async function tmpDb() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'calsync-labels-'));
@@ -86,20 +86,36 @@ test('resolveTargetLabels: no google client falls back to raw id', async () => {
   assert.equal(labels.get('1'), pairs[0].calendar_id);
 });
 
+test('resolveIdLabels: shared core - source ids resolve cache-first via the same cache', async () => {
+  const db = await tmpDb();
+  let calls = 0;
+  const googleClient = { getCalendarSummary: async (id) => { calls += 1; return `Name for ${id.slice(0, 4)}`; } };
+  const first = await resolveIdLabels({ db, googleClient, ids: ['g1', 'g2'] });
+  assert.equal(first.get('g1'), 'Name for g1');
+  assert.equal(first.get('g2'), 'Name for g2');
+  assert.equal(calls, 2, 'one light API call per unknown id');
+  assert.equal(db.getTargetLabel('google:g1'), 'Name for g1', 'cached under the same google:<id> key');
+  const second = await resolveIdLabels({ db, googleClient, ids: ['g1', 'g2'] });
+  assert.equal(calls, 2, 'cache hit: no second API call');
+  const failing = { getCalendarSummary: async () => { throw new Error('boom'); } };
+  const raw = await resolveIdLabels({ db: { ...db, getTargetLabel: () => null, setTargetLabel: () => {} }, googleClient: failing, ids: ['zz'] });
+  assert.equal(raw.get('zz'), 'zz', 'failure falls back to the raw id without caching');
+});
+
 test('REGRESSION: dashboard header cell order matches row cell order after Tags column', () => {
   const body = dashboardPage({ pairs: makePairs(), google: GOOGLE_STATE, tags: [] }).body;
   const head = body.match(/<thead><tr>([\s\S]*?)<\/tr><\/thead>/);
   const ths = [...head[1].matchAll(/<th([^>]*)>/g)].map((m) => m[1]);
-  assert.equal(ths.length, 9, 'nine header cells');
+  assert.equal(ths.length, 8, 'eight header cells');
   const thSortKeys = ths
     .map((attrs) => (attrs.match(/data-sort-key="([a-z_]+)"/) || [])[1] ?? null)
     .filter(Boolean);
-  assert.deepEqual(thSortKeys, ['name', 'category', 'target', 'interval', 'status', 'last_run'],
-    'sortable headers keep their order with the plain Tags th removed from the end');
+  assert.deepEqual(thSortKeys, ['name', 'category', 'target', 'interval', 'last_run'],
+    'Status column removed; sortable headers keep their order');
   const firstRow = body.match(/<tbody>([\s\S]*?)<\/tbody>/);
   const rowChunk = (firstRow[1].match(/<tr>[\s\S]*?<\/tr>/g) || [])[0] ?? '';
   const tds = [...rowChunk.matchAll(/<td/g)].length;
-  assert.equal(tds, 9, 'nine row cells match the nine header cells');
+  assert.equal(tds, 8, 'eight row cells match the eight header cells');
   const rowSortKeys = [...rowChunk.matchAll(/data-sort-key="([a-z_]+)"/g)].map((m) => m[1]);
   assert.deepEqual(rowSortKeys, thSortKeys, 'row sort-key sequence equals sortable header sequence');
 });
@@ -108,8 +124,18 @@ test('target cell renders the resolved label and keeps the raw id in its title',
   const pairs = makePairs();
   pairs[0].target_label = 'Avery Basketball (iCloud mirror)';
   const body = dashboardPage({ pairs, google: GOOGLE_STATE, tags: [] }).body;
-  assert.match(body, /Google - Avery Basketball \(iCloud mirror\)/, 'qualified target shown in the cell');
-  assert.match(body, /title="family00127487564181454180@group\.calendar\.google\.com"/, 'raw id lives in the tooltip');
+  assert.match(body, /data-target="Google - Avery Basketball \(iCloud mirror\)"/, 'qualified target stays in the data attr + filter dropdown');
+  assert.match(body, /<span class="mono small">google<\/span> <span class="chip" title="family00127487564181454180@group\.calendar\.google\.com">Avery Basketball \(iCloud mirror\)<\/span>/, 'plain type text + prefix-stripped name chip with the raw id tooltip');
+});
+
+test('target cell strips an existing CalDAV prefix from the resolved label', () => {
+  const pairs = makePairs();
+  pairs[0].target_type = 'caldav';
+  pairs[0].target_url = 'https://p154-caldav.icloud.com/116900302/calendars/home/';
+  pairs[0].target_label = 'CalDAV - home';
+  const body = dashboardPage({ pairs, google: GOOGLE_STATE, tags: [] }).body;
+  assert.ok(!body.includes('>CalDAV - home<'), 'no doubled prefix in the visible cell');
+  assert.match(body, /<span class="mono small">caldav<\/span> <span class="chip" title="https:\/\/p154-caldav\.icloud\.com\/116900302\/calendars\/home\/">home<\/span>/);
 });
 
 test('filter bar: Target/Tags/Interval dropdowns render with row filter attributes', () => {

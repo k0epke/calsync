@@ -444,12 +444,12 @@ The pairs table gained a dashboard organization surface on top of the sync
 state - everything in this section is render/client-side state and never
 changes sync behavior.
 
-- **Sorting.** The column headers Name, Source, Target, Interval, Status
-  and Last run are clickable: a click toggles ascending/descending and a
-  small arrow marks the active sort. Rows are sorted client-side over the
-  rendered rows (default: name, ascending). The chosen sort persists in
-  localStorage so it survives reloads; when storage is unavailable it
-  degrades gracefully to session-only.
+- **Sorting.** The column headers Name, Source, Target, Interval and Last
+  run are clickable: a click toggles ascending/descending and a small arrow
+  marks the active sort. Rows are sorted client-side over the rendered rows
+  (default: name, ascending). The chosen sort persists in localStorage so it
+  survives reloads; when storage is unavailable it degrades gracefully to
+  session-only.
 - **Filter bar.** Above the table: a free-text search (matches pair name OR
   feed URL, case-insensitive substring), a source picker (All / google /
   caldav / webcal / ics) and a status picker (All / Enabled / Paused /
@@ -458,22 +458,27 @@ changes sync behavior.
   and **Clear filters** resets both inputs and the stored state. Non-matching
   rows are hidden; when nothing matches, a "no sync pairs match" line is
   shown.
-- **Source column.** Auto-derived per row, purely for display, and rendered
-  as a plain short token: `source_type` `google` renders **google**,
-  `caldav` renders **caldav**, a `webcal://` source renders **webcal**, and
-  `http(s)://` URL feeds render **ics**. The VCS/XCal/JCal sub-formats
-  cannot be known statically - they are content-sniffed at sync time - so a
-  URL pair whose newest run recorded one of them keeps the **ics** token but
-  gains an auto-detected tooltip on the cell; the run history detail line
-  records the precise format of every run.
-- **Row layout.** The rows stay deliberately lean: the pair name, the Source
-  token, the Target (qualified, e.g. "CalDAV - home", with the raw
-  URL/id in its tooltip), tag chips, Interval, a single Status chip (a
-  disabled pair shows a muted **paused** chip, overriding the last run
-  status), Last run, Synced and Actions. The feed URL and the decorative
+- **Source column.** Sort/filter semantics stay on the row data attributes
+  (data-sort-key=data-sort-value=category key, data-category for the
+  filter); only the cell visual changed: a small chip whose text is the
+  feed's human-readable name - a Google source shows the calendar name
+  resolved through the same target_labels cache used for targets, a CalDAV
+  source shows the URL tail (e.g. `home`), and a URL/webcal feed shows the
+  first 10 characters of feed_url. The full feed_url lives in the chip
+  tooltip, and the auto-detected VCS/XCal/JCal tooltip on the cell (run
+  history records the precise format of every run) is unchanged.
+- **Row layout.** The rows stay deliberately lean: the pair name, the
+  Source chip, the Target (plain type text + a name chip without the
+  "Google - "/"CalDAV - " prefix; the qualified form stays in the row's
+  data-target attribute and the filter dropdown, the raw URL/id stays in
+  the chip tooltip), tag chips, Interval, and a combined Last run cell with
+  the status chip prepended (a disabled pair shows a muted **paused** chip,
+  overriding the last run status, followed by "last ok:" and any error
+  details), then Synced and Actions. The feed URL and the decorative
   platform/paused/filter/copy-mode chips were removed from the rows on
   purpose - search, filters and sorting still work via the row
-  `data-*` attributes and the filter bar.
+  `data-*` attributes and the filter bar; the Status column was folded into
+  Last run to save a column.
 - **Tags.** Ten fixed, customizable color-coded slots, managed on the
   **Settings** page (`/settings`, linked from the topnav and from a
   Settings button next to "+ New sync pair" on the dashboard): rename
