@@ -1,0 +1,29 @@
+:root {
+  --ks-bg: #0E1116;
+  --ks-panel: #171C24;
+  --ks-border: #2A313C;
+  --ks-text: #E6EDF3;
+  --ks-muted: #8B96A5;
+  --ks-green: #3FE0A0;
+  --ks-violet: #A78BFA;
+  --ks-amber: #FFB454;
+  --ks-font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --ks-font-sans: 'Inter', system-ui, sans-serif;
+  --ks-radius-sm: 6px;
+  --ks-radius-md: 10px;
+  --ks-radius-lg: 20px;
+  --ks-radius-icon: 22%;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --ks-bg: #F6F8FA;
+    --ks-panel: #FFFFFF;
+    --ks-border: #D0D7DE;
+    --ks-text: #0E1116;
+    --ks-muted: #57606A;
+    --ks-green: #0B7A54;
+    --ks-violet: #6D4FD8;
+    --ks-amber: #9A6700;
+  }
+}
