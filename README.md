@@ -403,6 +403,41 @@ pair - no rewrite churn from masking. Because the mask is deterministic,
 changing a pair's copy mode costs exactly one repair write per event, then
 converges again.
 
+## Sync fields (per pair)
+
+Each pair has a **Fields to sync** fieldset in the dashboard with checkboxes
+for **Description** and **Location** plus an **All fields** master check.
+Stored in `pairs.sync_fields` as JSON naming ONLY the unchecked (stripped)
+fields, e.g. `{"description":false}`; `NULL` (both boxes checked / All)
+means all fields sync - the exact pre-feature behavior, zero migration
+impact. Only these two fields are strippable by design: the write-path
+survey found no other event body fields CalSync can omit (titles follow the
+copy mode below, and reminders/attendees are never synced anywhere), so
+there are deliberately no checkboxes for unsupported fields.
+
+- **Semantics.** Unchecked fields are omitted when WRITING to the target
+  calendar (the Google events.import payload / the CalDAV PUT props;
+  stripped values never render as empty `DESCRIPTION:`/`LOCATION:` lines).
+  The mask is applied in both target adapters AFTER the copy-mode transform
+  and can only strip - it never adds fields back.
+- **Layering with copy modes.** Busy only and Generic title already strip
+  description and location, so with those modes the checkboxes are a no-op
+  on those two fields regardless of their states. Under Full details the
+  checkboxes are the only way to drop description/location per pair. Times,
+  status, transparency, visibility, sequence, UID and the (copy-mode
+  governed) title are never maskable.
+- **Stability.** As with privacy copy modes, the content hash is computed
+  AFTER the full transform chain (copy mode + field mask), so field-masked
+  pairs reach the same zero-write steady state - reruns import/write
+  nothing. Unchecking a previously synced field costs exactly one repair
+  write per event, then converges again.
+- The **All fields** checkbox is client-side sugar only (it has no name and
+  never posts): it reflects the two individual boxes (checked iff both are)
+  and clicking it toggles both.
+- A stored value that no longer parses (hand-edited rows) degrades to "all
+  fields sync" on the read path; malformed values fail with a clear
+  validation error at save time.
+
 ## Dashboard organization: sorting, filters, category, tags
 
 The pairs table gained a dashboard organization surface on top of the sync

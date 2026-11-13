@@ -40,6 +40,7 @@
     pairTableFilters();
     caldavListPicker();
     tagDotPreview();
+    syncFieldChecks();
     fadeFlashes();
   });
 
@@ -344,6 +345,25 @@
       select.addEventListener('change', function () {
         dot.style.background = String(select.value || '');
       });
+    });
+  }
+
+  // Pair form "Fields to sync" interlock (mirror of the tag-dot sugar: pure
+  // client-side, no fetch/server round trips). The All-fields checkbox has
+  // NO name attribute so it never posts; it merely reflects the two
+  // individual checkboxes (checked iff both are) and clicking it applies
+  // its state to both.
+  function syncFieldChecks() {
+    var all = document.getElementById('sync_all');
+    var desc = document.querySelector('input[name="sync_description"]');
+    var loc = document.querySelector('input[name="sync_location"]');
+    if (!all || !desc || !loc) return;
+    var reflectAll = function () { all.checked = desc.checked && loc.checked; };
+    desc.addEventListener('change', reflectAll);
+    loc.addEventListener('change', reflectAll);
+    all.addEventListener('change', function () {
+      desc.checked = all.checked;
+      loc.checked = all.checked;
     });
   }
 })();

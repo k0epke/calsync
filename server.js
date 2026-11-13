@@ -19,6 +19,7 @@ import { createAlertServices } from './lib/alerts.js';
 import { resolveTargetLabels } from './lib/labels.js';
 import { normalizeEventFiltersInput } from './lib/filters.js';
 import { normalizeCopyMode } from './lib/copymode.js';
+import { syncFieldMaskFromForm } from './lib/syncfields.js';
 import { makeSaveTagsHandler, makePairTagsHandler } from './lib/tags.js';
 import { Scheduler, SYNC_INTERVAL_CHOICES } from './lib/scheduler.js';
 import {
@@ -464,6 +465,15 @@ async function resolvePairPayload(req, existing = null) {
 
   // --- Privacy copy mode ('full'|'busy'|'generic', junk normalizes) ---
   fields.copy_mode = normalizeCopyMode(String(req.body?.copy_mode ?? '').trim());
+
+  // --- Fields to sync (description/location checkboxes) ---
+  // HTML checkboxes post ONLY when checked: present (non-empty) = true,
+  // absent = false. Both checked (or both absent, i.e. an old client that
+  // strips the fieldset) maps through storedSyncFieldsJson at the db
+  // boundary: nothing stripped -> NULL (= all fields sync, keeps rows
+  // clean); malformed sync_fields never reach this path because the form
+  // can only post the two booleans.
+  fields.sync_fields = syncFieldMaskFromForm(req.body);
 
   return { fields };
 }
