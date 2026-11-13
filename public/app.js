@@ -366,4 +366,30 @@
       loc.checked = all.checked;
     });
   }
+
+  // Appearance toggle (Settings page). Stored choice: 'light' | 'dark' in
+  // localStorage (no cookie/server round trip). Absent = follow the OS.
+  function themePicker() {
+    var btn = document.getElementById('theme-toggle');
+    if (!btn) return;
+    var applyLabel = function () {
+      var cur = localStorage.getItem('rd-theme');
+      var effective = cur || (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+      btn.textContent = effective === 'light' ? 'Switch to dark' : 'Switch to light';
+    };
+    var target = function () {
+      var cur = localStorage.getItem('rd-theme');
+      var effective = cur || (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+      return effective === 'light' ? 'dark' : 'light';
+    };
+    btn.addEventListener('click', function () {
+      var next = target();
+      try { localStorage.setItem('rd-theme', next); } catch (e) {}
+      document.documentElement.dataset.theme = next;
+      applyLabel();
+    });
+    applyLabel();
+  }
+
+  themePicker();
 })();

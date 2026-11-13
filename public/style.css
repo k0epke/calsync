@@ -34,6 +34,36 @@
     --row-hover: #EFF2F6;
   }
 }
+/* Explicit user choice overrides both the dark default and the OS light
+   preference (see the theme picker on the Settings page). */
+:root[data-theme="light"] {
+  --bg: #F6F8FA;
+  --card: #FFFFFF;
+  --ink: #0E1116;
+  --muted: #57606A;
+  --line: #D0D7DE;
+  --accent: #0B7A54;
+  --accent-ink: #ffffff;
+  --ok: #0B7A54;
+  --warn: #9A6700;
+  --err: #dc2626;
+  --violet: #6D4FD8;
+  --row-hover: #EFF2F6;
+}
+:root[data-theme="dark"] {
+  --bg: #0E1116;
+  --card: #171C24;
+  --ink: #E6EDF3;
+  --muted: #8B96A5;
+  --line: #2A313C;
+  --accent: #3FE0A0;
+  --accent-ink: #0E1116;
+  --ok: #3FE0A0;
+  --warn: #FFB454;
+  --err: #F85149;
+  --violet: #A78BFA;
+  --row-hover: #1A212B;
+}
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body {
