@@ -1,12 +1,26 @@
 # kalsynk
 
-Self-hosted calendar sync: periodically pulls events from remote calendar feeds
-and mirrors them into dedicated **Google Calendars** via the official
-Google Calendar API v3, with a small authenticated web dashboard.
+`// all your calendars are belong to you`
+
+Self-hosted calendar sync engine with a web dashboard. kalsynk pulls events from
+ICS/vCalendar feeds, iCloud (CalDAV) and Google calendars, and mirrors them into
+**Google Calendar** or **iCloud** targets - recurring series intact, per-pair field
+and privacy controls, and deletion sweeps that only ever touch events kalsynk wrote.
 
 - **Plain ESM JavaScript** � no TypeScript, no build step. Deploy is `npm ci` && `node server.js`.
 - **No native dependencies** � SQLite via the built-in `node:sqlite` module.
 - **Node.js >= 22** (Node 22.5+ requires `--experimental-sqlite`; Node 23.4+/24 run unflagged � 24 recommended).
+
+## Dashboard
+
+- Authenticated web UI with a sortable, filterable pairs table: search plus dropdown
+  filters for source, target, tags, interval and status state
+- Per-pair tags with color coding (10 named slots, managed on the Settings page)
+- Per-pair field selection ("Fields to sync": description/location) layered on top of
+  the privacy copy modes
+- Target and Source columns resolve human calendar names through the connected platforms
+- Settings page: Google account connection and the tag manager
+- Optional Telegram failure alerts + daily digest (see below)
 
 ## Features
 
@@ -39,6 +53,9 @@ Google Calendar API v3, with a small authenticated web dashboard.
 - **Generic CalDAV hosts (opt-in, default OFF):** `CALDAV_ALLOW_ANY_HOST=true` accepts any https
   CalDAV host instead of iCloud-only. Credentials still never travel in URLs and redaction still
   applies everywhere (see "Generic CalDAV hosts" below).
+- **Per-pair field selection:** choose which event fields sync (description, location) or
+  all of them; layered on the copy modes, hashes computed after the full transform so
+  masked writes reach the same zero-write steady state.
 - **Per-pair sync into a dedicated Google calendar** using `calendar.events.import` �
   an upsert keyed by `iCalUID`, which makes every run idempotent. Recurrence
   (RRULE/RDATE/EXDATE lines) is preserved; Google expands occurrences.
