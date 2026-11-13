@@ -16,6 +16,7 @@ import { parseFeed, ParseError } from './lib/icalparse.js';
 import { createSyncEngine, SyncError, pairSemanticError } from './lib/sync.js';
 import { createIcloudCalDavClient, parseCaldavUrl, listIcloudCalendars } from './lib/caldav.js';
 import { createAlertServices } from './lib/alerts.js';
+import { termsHtml, privacyHtml } from './lib/legal.js';
 import { resolveTargetLabels, resolveIdLabels } from './lib/labels.js';
 import { normalizeEventFiltersInput } from './lib/filters.js';
 import { normalizeCopyMode } from './lib/copymode.js';
@@ -194,6 +195,14 @@ app.use('/assets', (req, res, next) => {
   if (req.session?.user) return next();
   res.status(401).json({ ok: false, error: 'Not authenticated' });
 }, express.static(ASSETS, { index: false, maxAge: 0 }));
+
+// Public legal pages (no session required - like healthz).
+app.get('/terms', (req, res) => {
+  res.status(200).type('html').send(layout({ title: 'Terms of Service', body: `<div class="card legal"><h1>regimen.d Terms of Service</h1>${termsHtml()}</div>`, user: null, msg: null, err: null, csrf: null }));
+});
+app.get('/privacy', (req, res) => {
+  res.status(200).type('html').send(layout({ title: 'Privacy Policy', body: `<div class="card legal"><h1>regimen.d Privacy Policy</h1>${privacyHtml()}</div>`, user: null, msg: null, err: null, csrf: null }));
+});
 
 // --- login/logout (rate limited) ------------------------------------------------
 app.get('/login', (req, res) => {
