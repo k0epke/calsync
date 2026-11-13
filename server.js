@@ -186,11 +186,12 @@ app.get('/healthz', (req, res) => {
   res.status(200).json({ ok: true, service: 'regimen.d', uptime: Math.round(process.uptime()) });
 });
 
-// Static assets are authenticated like everything else.
+// Static assets: GET/HEAD are public (the login page itself needs the
+// stylesheet, lockup and favicons); non-GET still requires a session.
 const ASSETS = path.join(__dirname, 'public');
 app.use('/assets', (req, res, next) => {
+  if (req.method === 'GET' || req.method === 'HEAD') return next();
   if (req.session?.user) return next();
-  if (req.method === 'GET') return res.redirect('/login');
   res.status(401).json({ ok: false, error: 'Not authenticated' });
 }, express.static(ASSETS, { index: false, maxAge: 0 }));
 
