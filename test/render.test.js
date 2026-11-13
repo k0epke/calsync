@@ -45,7 +45,7 @@ test('layout uses the dark lockup (dark-first theme default)', () => {
 
 test('login renders the big primary lockup and the brand tagline', () => {
   const { body } = renderLogin({ next: '/dash' });
-  assert.match(body, /<img class="login-lockup" src="\/assets\/brand\/lockup-on-dark\.svg" alt="kalsynk">/, 'big primary lockup rendered');
+  assert.match(body, /<img class="login-lockup" src="\/assets\/brand\/lockup-on-dark\.svg" alt="regimen.d">/, 'big primary lockup rendered');
   assert.match(body, /\/\/ all your calendars are belong to you/, 'brand tagline rendered');
   // Form logic is unchanged: exact fields, next param, csrf shape.
   assert.match(body, /action="\/login\?next=%2Fdash"/);

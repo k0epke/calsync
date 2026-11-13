@@ -1,11 +1,11 @@
-# kalsynk
+# regimen.d
 
 `// all your calendars are belong to you`
 
-Self-hosted calendar sync engine with a web dashboard. kalsynk pulls events from
+Self-hosted calendar sync engine with a web dashboard. regimen.d pulls events from
 ICS/vCalendar feeds, iCloud (CalDAV) and Google calendars, and mirrors them into
 **Google Calendar** or **iCloud** targets - recurring series intact, per-pair field
-and privacy controls, and deletion sweeps that only ever touch events kalsynk wrote.
+and privacy controls, and deletion sweeps that only ever touch events regimen.d wrote.
 
 - **Plain ESM JavaScript** � no TypeScript, no build step. Deploy is `npm ci` && `node server.js`.
 - **No native dependencies** � SQLite via the built-in `node:sqlite` module.
@@ -108,7 +108,7 @@ and privacy controls, and deletion sweeps that only ever touch events kalsynk wr
    - Add yourself as a **test user** (required while the app is in "Testing").
 4. **APIs & Services ? Credentials ? Create credentials ? OAuth client ID**:
    - Application type: **Web application**;
-   - **Authorized redirect URI** must exactly match kalsynk's redirect URL, e.g.
+   - **Authorized redirect URI** must exactly match regimen.d's redirect URL, e.g.
      - local dev: `http://127.0.0.1:8787/oauth/callback`
      - production: `https://cal.example.com/oauth/callback`
    - Copy the **Client ID** and **Client secret** into `.env`.
@@ -119,7 +119,7 @@ token stored (only) in the local SQLite database.
 
 ## iCloud (CalDAV) calendar source and target
 
-kalsynk can read private iCloud calendars as a feed source and mirror
+regimen.d can read private iCloud calendars as a feed source and mirror
 them into Google exactly like a URL feed: sync pairs with `source_type`
 `caldav` fetch over CalDAV (`https://caldav.icloud.com`) using HTTP Basic
 authentication. Apple offers no REST API for iCloud Calendar; CalDAV is the
@@ -134,12 +134,12 @@ password (any Apple ID with two-factor authentication qualifies):
 
 1. Sign in at <https://appleid.apple.com> with your Apple ID.
 2. Open **Sign-In and Security** -> **App-Specific Passwords**.
-3. Click **+**, label it (e.g. `kalsynk`), and copy the generated password
+3. Click **+**, label it (e.g. `regimen.d`), and copy the generated password
    (format `abcd-efgh-ijkl-mnop`). It is shown only once.
 
 ### 2. Wire the credentials via .env (the only supported path in this build)
 
-kalsynk keeps ONE iCloud account per deployment (an Apple ID usually owns
+regimen.d keeps ONE iCloud account per deployment (an Apple ID usually owns
 several calendars). Credentials come from environment/.env only:
 
 ```
@@ -189,7 +189,7 @@ import, deletion sweep, run log) behaves exactly like a URL-feed pair: one
 REPORT calendar-query replaces the HTTP ICS fetch and returns the same
 normalized event model. STATUS:CANCELLED events and events that disappear
 from the REPORT snapshot follow the usual "removed by the feed" rules
-(imports and deletions only ever touch events kalsynk imported itself).
+(imports and deletions only ever touch events regimen.d imported itself).
 
 ### How it fetches (REPORT strategy)
 
@@ -324,7 +324,7 @@ its target - pre-existing content in either side survives untouched.
 
 ### Two-way limitations
 
-- Apple does not document CalDAV write rate limits; kalsynk therefore
+- Apple does not document CalDAV write rate limits; regimen.d therefore
   writes strictly sequentially (one PUT/DELETE at a time, same push delay
   and 429/5xx exponential backoff honoring Retry-After as Google writes)
   and, when every attempted import fails, skips the deletion pass so an
@@ -347,14 +347,14 @@ Both alert channels are OFF unless `ALERT_TELEGRAM_TOKEN` and
 - **Run failure hook.** After every run finalizes, `error` and `partial`
   runs send ONE message:
 
-  `[kalsynk] pair "<name>" (trigger) finished <status>: imported X, deleted Y, failed Z - <first error line, truncated to 300 chars>`
+  `[regimen.d] pair "<name>" (trigger) finished <status>: imported X, deleted Y, failed Z - <first error line, truncated to 300 chars>`
 
   `success` runs never alert. Bursts are capped in memory: at most one alert
   per pair per 30 minutes, so flapping sources cannot flood the chat.
 - **Daily digest.** A node-cron job fires daily at minute 0 of hour
   `ALERT_DIGEST_HOUR` (0-23, default 8) in America/Chicago:
 
-  `kalsynk daily digest: <enabled pairs> pairs - <N> success, <M> failed in last 24h; last 10 runs: <one-line statuses>`
+  `regimen.d daily digest: <enabled pairs> pairs - <N> success, <M> failed in last 24h; last 10 runs: <one-line statuses>`
 
   It is a single send per calendar day (a defensive day-guard keeps it that
   way even if the callback fires twice); with no runs in the window it says
@@ -388,7 +388,7 @@ save time.
 - **Deletion interaction.** The deletion planner operates on the FILTERED
   source snapshot: adding an exclude keyword that matches previously
   imported events prunes those copies from the target on the next run via
-  the normal deletion sweep (only kalsynk-imported UIDs are ever touched).
+  the normal deletion sweep (only regimen.d-imported UIDs are ever touched).
 - **Visibility.** Filters configure per pair in the dashboard form; each run
   records how many source events the filters dropped in its run-log detail
   (`filtered`).
@@ -412,7 +412,7 @@ The transform is applied **at write time, in both target adapters** (Google
 `events.import` and CalDAV PUT), never to the source snapshot. The critical
 property is **hash-after-transform**: the content hash used for
 skip-unchanged is computed from the TRANSFORMED event, i.e. exactly the
-bytes kalsynk wrote. On the Google target the stored per-UID hash matches
+bytes regimen.d wrote. On the Google target the stored per-UID hash matches
 the transformed hash on every later run; on the CalDAV target the live
 remote copy parses back equal to the transformed canonical hash. Either way
 a masked pair reaches the same zero-write steady state as a full-detail
@@ -428,7 +428,7 @@ Stored in `pairs.sync_fields` as JSON naming ONLY the unchecked (stripped)
 fields, e.g. `{"description":false}`; `NULL` (both boxes checked / All)
 means all fields sync - the exact pre-feature behavior, zero migration
 impact. Only these two fields are strippable by design: the write-path
-survey found no other event body fields kalsynk can omit (titles follow the
+survey found no other event body fields regimen.d can omit (titles follow the
 copy mode below, and reminders/attendees are never synced anywhere), so
 there are deliberately no checkboxes for unsupported fields.
 
@@ -651,7 +651,7 @@ is skipped that run so an outage cannot mass-delete the calendar.
 - **iCloud pair shows `HTTP 401 ...`** - the app-specific password expired or was revoked; re-issue one at <https://appleid.apple.com> (Sign-In and Security -> App-Specific Passwords), update `ICLOUD_APP_PASSWORD` in `.env` and restart.
 - **`iCloud (CalDAV) source not configured`** on runs - set `ICLOUD_APPLE_ID` and `ICLOUD_APP_PASSWORD` in `.env`, then restart the service.
 - **`iCloud (CalDAV) target not configured`** on runs - the target side needs the same two variables; they apply to reads and writes alike.
-- **`HTTP 412` failures on a pair's runs page** - another writer keeps invalidating kalsynk's etags (a second sync app on the same iCloud calendar?); the client refreshes its snapshot once per write and then surfaces the conflict as a per-event failure.
+- **`HTTP 412` failures on a pair's runs page** - another writer keeps invalidating regimen.d's etags (a second sync app on the same iCloud calendar?); the client refreshes its snapshot once per write and then surfaces the conflict as a per-event failure.
 
 ## Development
 

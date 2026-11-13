@@ -142,7 +142,7 @@ test('putEvent builds a VCALENDAR that parses back to the same normalized model'
   const { body, warnings } = putEventBody(SIMPLE_EVENT);
   assert.deepEqual(warnings, []);
   assert.match(body, /^BEGIN:VCALENDAR\r\n/);
-  assert.match(body, /PRODID:-\/\/kalsynk\/\/kalsynk\/\/EN/);
+  assert.match(body, /PRODID:-\/\/regimen\.d\/\/calendar sync\/\/EN/);
   assert.match(body, /UID:evt-a\r\n/);
   assert.match(body, /DTSTART:20261115T090000Z/);
   assert.match(body, /DTEND:20261115T093000Z/);

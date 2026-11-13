@@ -95,12 +95,12 @@ test('runFailureMessage: exact failure template, first error line only, truncate
   const pair = { id: 7, name: 'Work feed' };
   assert.equal(
     runFailureMessage({ pair, trigger: 'scheduled', status: 'error', log: { imported: 2, deleted: 1, failed: 0 }, error: 'fetch failed\nHTTP 502 from upstream\nmore' }),
-    '[kalsynk] pair "Work feed" (scheduled) finished error: imported 2, deleted 1, failed 0 - fetch failed',
+    '[regimen.d] pair "Work feed" (scheduled) finished error: imported 2, deleted 1, failed 0 - fetch failed',
   );
   const partialLog = { imported: 3, deleted: 0, failed: 1, failures: ['import evt-x: 429 backend error\nretry hint'] };
   assert.equal(
     runFailureMessage({ pair, trigger: 'manual', status: 'partial', log: partialLog }),
-    '[kalsynk] pair "Work feed" (manual) finished partial: imported 3, deleted 0, failed 1 - import evt-x: 429 backend error',
+    '[regimen.d] pair "Work feed" (manual) finished partial: imported 3, deleted 0, failed 1 - import evt-x: 429 backend error',
   );
   const long = 'y'.repeat(500);
   const msg = runFailureMessage({ pair: { name: 'P' }, trigger: 't', status: 'error', log: {}, error: long });
@@ -108,7 +108,7 @@ test('runFailureMessage: exact failure template, first error line only, truncate
   assert.ok(msg.endsWith('y'.repeat(300)), 'error line truncated to exactly the first 300 chars');
   assert.equal(
     runFailureMessage({ pair: { id: 3 }, trigger: 'initial', status: 'error', log: {}, error: null }),
-    '[kalsynk] pair "3" (initial) finished error: imported 0, deleted 0, failed 0 - unknown error',
+    '[regimen.d] pair "3" (initial) finished error: imported 0, deleted 0, failed 0 - unknown error',
     'degenerate inputs fall back to the pair id and stay stable',
   );
 });
@@ -136,14 +136,14 @@ test('notifyRunOutcome: error and partial alert with the pinned message; success
   });
   assert.equal(tg.calls.length, 1);
   assert.deepEqual(JSON.parse(tg.calls[0].body),
-    { chat_id: CHAT, text: '[kalsynk] pair "Work feed" (scheduled) finished error: imported 2, deleted 1, failed 0 - feed boom' });
+    { chat_id: CHAT, text: '[regimen.d] pair "Work feed" (scheduled) finished error: imported 2, deleted 1, failed 0 - feed boom' });
 
   await services.notifyRunOutcome({
     pair: { id: 2, name: 'Other' }, trigger: 'manual', status: 'partial',
     log: { imported: 1, deleted: 0, failed: 2, failures: ['delete uid-9: 404'] },
   });
   assert.deepEqual(JSON.parse(tg.calls[1].body),
-    { chat_id: CHAT, text: '[kalsynk] pair "Other" (manual) finished partial: imported 1, deleted 0, failed 2 - delete uid-9: 404' });
+    { chat_id: CHAT, text: '[regimen.d] pair "Other" (manual) finished partial: imported 1, deleted 0, failed 2 - delete uid-9: 404' });
 });
 
 test('notifyRunOutcome: dedup max 1 alert per pair per 30 minutes (in-memory), per-pair keys', async () => {
@@ -209,7 +209,7 @@ test('daily digest: body shape (enabled pairs, 24h success/failed counts, last 1
   const text = JSON.parse(tg.calls[0].body).text;
   assert.equal(
     text,
-    'kalsynk daily digest: 2 pairs - 2 success, 1 failed in last 24h; last 10 runs: '
+    'regimen.d daily digest: 2 pairs - 2 success, 1 failed in last 24h; last 10 runs: '
     + '11:05 "P2" success (1i/0d/0f); 09:30 "P2" partial (1i/0d/1f); 07:52 "P1" success (2i/0d/0f)',
     'pinned digest format: enabled pair count, 24h counts, newest-first one-liners',
   );
@@ -230,7 +230,7 @@ test('daily digest: no runs in 24h renders "last 10 runs: none"; disabled servic
   const res = await services.sendDailyDigest();
   assert.equal(res.sent, true);
   const text = JSON.parse(tg.calls[0].body).text;
-  assert.equal(text, 'kalsynk daily digest: 1 pairs - 0 success, 0 failed in last 24h; last 10 runs: none');
+  assert.equal(text, 'regimen.d daily digest: 1 pairs - 0 success, 0 failed in last 24h; last 10 runs: none');
 
   const off = servicesOf({ db, cfg: { alertTelegramToken: TOKEN, alertTelegramChatId: '' } });
   assert.deepEqual(await off.services.sendDailyDigest(), { sent: false, reason: 'disabled' });
@@ -290,7 +290,7 @@ test('engine x alerts: failing run alerts once; repeated failing runs stay dedup
   assert.equal(tg.calls.length, 1, 'one alert after the run finalized');
   assert.deepEqual(JSON.parse(tg.calls[0].body), {
     chat_id: CHAT,
-    text: '[kalsynk] pair "Outage pair" (scheduled) finished error: imported 0, deleted 0, failed 2'
+    text: '[regimen.d] pair "Outage pair" (scheduled) finished error: imported 0, deleted 0, failed 2'
       + ' - All 2 import attempt(s) failed — deletion pass skipped',
   });
 

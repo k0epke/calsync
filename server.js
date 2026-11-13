@@ -183,7 +183,7 @@ function safeNext(n) {
 
 // --- public, unauthenticated ---------------------------------------------------
 app.get('/healthz', (req, res) => {
-  res.status(200).json({ ok: true, service: 'kalsynk', uptime: Math.round(process.uptime()) });
+  res.status(200).json({ ok: true, service: 'regimen.d', uptime: Math.round(process.uptime()) });
 });
 
 // Static assets are authenticated like everything else.
@@ -566,7 +566,7 @@ app.get('/oauth/callback', async (req, res) => {
     if (!code) return redirectWith(res, { err: 'Missing authorization code.' });
     const { tokens } = await oauthClient.getToken(code);
     if (!tokens.refresh_token) {
-      return redirectWith(res, { err: 'Google did not return a refresh token — revoke kalsynk at https://myaccount.google.com/permissions then reconnect.' });
+      return redirectWith(res, { err: 'Google did not return a refresh token — revoke regimen.d at https://myaccount.google.com/permissions then reconnect.' });
     }
     oauthClient.setCredentials(tokens);
     const probe = new GoogleCalendarClient(oauthClient, { logger });
@@ -611,7 +611,7 @@ app.use((err, req, res, _next) => { // eslint-disable-line no-unused-vars
 
 // --- boot ---------------------------------------------------------------------------
 const server = app.listen(config.port, config.host, () => {
-  logger.info(`kalsynk listening on http://${config.host}:${config.port}`);
+  logger.info(`regimen.d listening on http://${config.host}:${config.port}`);
   logger.info('GET /healthz is public; everything else requires login.');
   logger.info(`SQLite database: ${config.dbPath}`);
   scheduler.startAll();
