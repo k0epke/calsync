@@ -59,7 +59,7 @@ test('dashboard shows the Source chip per source type with the full feed_url in 
   const caldavRow = body.split('<tr>').find((r) => r.includes('caldav://caldav.icloud.com/1/calendars/a/'));
   assert.ok(caldavRow, 'the caldav pair row rendered');
   assert.match(caldavRow, /data-category="caldav"/, 'row keeps the data-category attribute the filter reads');
-  assert.match(caldavRow, /<td data-sort-key="category" data-sort-value="caldav"><span class="chip" title="caldav:\/\/caldav.icloud.com\/1\/calendars\/a\/">a<\/span><\/td>/, 'Source cell shows the URL tail chip with the full feed_url tooltip');
+  assert.match(caldavRow, /<td data-sort-key="category" data-sort-value="caldav"><span class="mono small">caldav<\/span> <span class="chip" title="caldav:\/\/caldav.icloud.com\/1\/calendars\/a\/">a<\/span><\/td>/, 'Source cell shows the type token plus the URL tail chip with the full feed_url tooltip');
   const urlRow = body.split('<tr>').find((r) => r.includes('https://feed.example/x.ics'));
   assert.ok(urlRow, 'the url pair row rendered');
   assert.match(urlRow, /<span class="chip" title="https:\/\/feed\.example\/x\.ics">https:\/\/fe...<\/span>/, 'url sources show the first 10 chars of feed_url');

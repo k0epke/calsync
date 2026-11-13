@@ -453,7 +453,7 @@ test('render: Source column chip per shape, tooltip for the auto-detected sub-fo
   const { body } = renderDashboard({ pairs, google: googleStateStub(), tags: [], csrf: 'TOK' });
 
   const expectChip = (row, text) => {
-    const chip = (row.match(/data-sort-key="category"[^>]*><span class="chip"[^>]*>([^<]*)<\/span><\/td>/) || [])[1];
+    const chip = (row.match(/data-sort-key="category"[\s\S]*?<span class="chip"[^>]*>([^<]*)<\/span>/) || [])[1];
     assert.equal(chip, text, `source cell chip text is ${text}`);
   };
   const gRow = rowFor(body, 'G');
@@ -658,7 +658,7 @@ test('vcs-marked content labels a url+http(s) pair as "ICS feed (auto-detected)"
     const lastDetails = db.lastRunDetailByPair();
     const enriched = [{ ...pair, last_run_detail: lastDetails.get(Number(pair.id)) ?? null, tags: [] }];
     const { body } = renderDashboard({ pairs: enriched, google: googleStateStub(), tags: [], csrf: 'T' });
-    assert.match(body, /data-sort-value="ics"[^>]*><span class="chip"[^>]*>https:\/\/fe...<\/span><\/td>/, 'runtime-detected sub-format keeps the ics key and renders the source chip');
+    assert.match(body, /data-sort-value="ics"[^>]*><span class="mono small">ics<\/span> <span class="chip"[^>]*>https:\/\/fe...<\/span><\/td>/, 'runtime-detected sub-format keeps the ics key and renders the source chip');
     assert.match(body, /title="The sub-format \(VCS, XCal or JCal\) is auto-detected/);
   });
 });
