@@ -65,7 +65,7 @@ Google Calendar API v3, with a small authenticated web dashboard.
 - **Dashboard:** server-rendered HTML + a little vanilla JS, one small stylesheet,
   no frameworks. Pair CRUD, Google connection state, run history with per-event
   failure details, plus dashboard organization: client-side sorting and
-  filtering, an auto-derived category column and 10 customizable color-coded
+  filtering, an auto-derived Source column and 10 customizable color-coded
   tag slots (see "Dashboard organization: sorting, filters, category, tags"
   below).
 
@@ -372,9 +372,9 @@ save time.
   source snapshot: adding an exclude keyword that matches previously
   imported events prunes those copies from the target on the next run via
   the normal deletion sweep (only CalSync-imported UIDs are ever touched).
-- **Visibility.** Filtered pairs show `inc:`/`exc:` chips on the dashboard,
-  and each run records how many source events the filters dropped in its
-  run-log detail (`filtered`).
+- **Visibility.** Filters configure per pair in the dashboard form; each run
+  records how many source events the filters dropped in its run-log detail
+  (`filtered`).
 - A stored `filters` value that no longer parses (e.g. edited by hand)
   degrades to "no filter this run" with a run warning instead of failing
   syncs.
@@ -444,28 +444,36 @@ The pairs table gained a dashboard organization surface on top of the sync
 state - everything in this section is render/client-side state and never
 changes sync behavior.
 
-- **Sorting.** The column headers Name, Category, Target, Interval, Status
+- **Sorting.** The column headers Name, Source, Target, Interval, Status
   and Last run are clickable: a click toggles ascending/descending and a
   small arrow marks the active sort. Rows are sorted client-side over the
   rendered rows (default: name, ascending). The chosen sort persists in
   localStorage so it survives reloads; when storage is unavailable it
   degrades gracefully to session-only.
 - **Filter bar.** Above the table: a free-text search (matches pair name OR
-  feed URL, case-insensitive substring), a category picker (All / Google /
-  CalDAV / WebCal / ICS feed) and a status picker (All / Enabled / Paused /
+  feed URL, case-insensitive substring), a source picker (All / google /
+  caldav / webcal / ics) and a status picker (All / Enabled / Paused /
   With errors; "With errors" means the last run ended in `error` or
   `partial`). All filters apply live with no reload, persist in localStorage,
   and **Clear filters** resets both inputs and the stored state. Non-matching
   rows are hidden; when nothing matches, a "no sync pairs match" line is
   shown.
-- **Category column.** Auto-derived per row, purely for display:
-  `source_type` `google` renders **Google**, `caldav` renders **CalDAV
-  (iCloud)**, a `webcal://` source renders **WebCal**, and `http(s)://` URL
-  feeds render **ICS feed**. The VCS/XCal/JCal sub-formats cannot be known
-  statically - they are content-sniffed at sync time - so a URL pair whose
-  newest run recorded one of them renders exactly **ICS feed
-  (auto-detected)**, with a tooltip; the run history detail line records the
-  precise format of every run.
+- **Source column.** Auto-derived per row, purely for display, and rendered
+  as a plain short token: `source_type` `google` renders **google**,
+  `caldav` renders **caldav**, a `webcal://` source renders **webcal**, and
+  `http(s)://` URL feeds render **ics**. The VCS/XCal/JCal sub-formats
+  cannot be known statically - they are content-sniffed at sync time - so a
+  URL pair whose newest run recorded one of them keeps the **ics** token but
+  gains an auto-detected tooltip on the cell; the run history detail line
+  records the precise format of every run.
+- **Row layout.** The rows stay deliberately lean: the pair name, the Source
+  token, the Target (qualified, e.g. "CalDAV - home", with the raw
+  URL/id in its tooltip), tag chips, Interval, a single Status chip (a
+  disabled pair shows a muted **paused** chip, overriding the last run
+  status), Last run, Synced and Actions. The feed URL and the decorative
+  platform/paused/filter/copy-mode chips were removed from the rows on
+  purpose - search, filters and sorting still work via the row
+  `data-*` attributes and the filter bar.
 - **Tags.** Ten fixed, customizable color-coded slots, managed on the
   **Settings** page (`/settings`, linked from the topnav and from a
   Settings button next to "+ New sync pair" on the dashboard): rename

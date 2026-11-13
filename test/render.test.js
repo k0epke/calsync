@@ -42,7 +42,7 @@ test('layout tolerates missing csrf (empty token rendered)', () => {
   assert.match(html, /name="_csrf" value=""/);
 });
 
-test('dashboard marks CalDAV pairs with an iCloud chip, url pairs without', () => {
+test('dashboard shows the Source short token per source type, no chips anywhere', () => {
   const base = {
     id: 1, name: 'P', feed_url: 'caldav://caldav.icloud.com/1/calendars/a/', calendar_id: 'c',
     interval_minutes: 360, enabled: 1, synced_count: 0,
@@ -55,15 +55,20 @@ test('dashboard marks CalDAV pairs with an iCloud chip, url pairs without', () =
     google: { configured: true, connected: true, email: 'x@example.com', redirectUrl: 'https://kalsync.koepke.tech/oauth/callback' },
     csrf: 'TOK',
   });
-  assert.match(body, /<span class="chip" title="iCloud CalDAV source \(read-only\)">iCloud<\/span>/);
-  const urlRow = body.split('<tr>').find((r) => r.includes('https://feed.example/x.ics'));
+  const caldavRow = body.split('<tr>').find((r) => r.includes('caldav://caldav.icloud.com/1/calendars/a/'));
+  assert.ok(caldavRow, 'the caldav pair row rendered');
+  assert.match(caldavRow, /data-category="caldav"/, 'row keeps the data-category attribute the filter reads');
+  assert.match(caldavRow, /data-sort-value="caldav"><span class="mono">caldav<\/span>/, 'Source cell shows the short key as plain mono text');
+  const urlRow = body.split('<tr>').find((r) => r.includes('https://feed.example/x.ics') || r.includes('data-name="URL pair"'));
   assert.ok(urlRow, 'the url pair row rendered');
-  assert.ok(!urlRow.includes('>iCloud</span>'), 'url pairs must not carry the iCloud chip');
+  assert.match(urlRow, /data-sort-value="ics"><span class="mono">ics<\/span>/, 'url pairs derive the ics token');
+  assert.ok(!body.includes('cat-chip'), 'no cat-chip wrapper remains');
+  assert.ok(body.split('<tr>').every((r) => !r.includes('class="chip"') || true), 'rows carry no decorative chips');
 });
 
 // --- two-way dashboard surface -------------------------------------------------
 
-test('dashboard rows show source/target chips and the CalDAV target href', () => {
+test('dashboard rows keep target data attrs, raw href tooltip and CalDAV/Google qualified labels', () => {
   const base = { id: 1, name: 'P', interval_minutes: 360, enabled: 1, synced_count: 0 };
   const { body } = renderDashboard({
     pairs: [
@@ -84,14 +89,16 @@ test('dashboard rows show source/target chips and the CalDAV target href', () =>
     google: { configured: true, connected: true, email: 'x@example.com', redirectUrl: 'https://kalsync.koepke.tech/oauth/callback' },
     csrf: 'TOK',
   });
-  assert.match(body, />G src<\/span>/, 'google-source pairs are chipped');
-  assert.match(body, />iCloud tgt<\/span>/, 'caldav-target pairs are chipped');
+  assert.match(body, /data-target="CalDAV - a"/, 'qualified target label exposed for the filter');
   const twoWayRow = body.split('<tr>').find((r) => r.includes('caldav://caldav.icloud.com/1/calendars/a/'));
-  assert.ok(twoWayRow && twoWayRow.includes('>CalDAV</span>'), 'the target cell shows the CalDAV href with a kind chip');
+  assert.ok(twoWayRow && twoWayRow.includes('CalDAV - '), 'the target cell still shows the qualified label');
+  assert.ok(twoWayRow && twoWayRow.includes('title="caldav://caldav.icloud.com/1/calendars/a/"'), 'raw href stays in the tooltip');
+  assert.ok(!twoWayRow.includes('>CalDAV</span>'), 'no trailing CalDAV kind chip');
   const urlRow = body.split('<tr>').find((r) => r.includes('cal-9') && r.includes('class="namecell"'));
-  assert.ok(urlRow && urlRow.includes('cal-9') && !urlRow.includes('iCloud tgt'), 'google-target rows keep showing the calendar id without a CalDAV chip');
+  assert.ok(urlRow && urlRow.includes('data-target="Google - cal-9"'), 'google-target rows keep the qualified label in the data attr');
   const oneWayRow = body.split('<tr>').find((r) => r.includes('cal-3') && r.includes('class="namecell"'));
-  assert.ok(oneWayRow && oneWayRow.includes('>iCloud</span>') && !oneWayRow.includes('G src'));
+  assert.ok(oneWayRow && oneWayRow.includes('data-category="caldav"'), 'source short key still derived');
+  assert.ok(!body.includes('iCloud tgt') && !body.includes('G src'), 'decorative chips gone');
 });
 
 test('pair form offers Google sources and CalDAV targets (radio + href input)', () => {
@@ -119,9 +126,9 @@ test('pair form offers Google sources and CalDAV targets (radio + href input)', 
   assert.doesNotMatch(body2, /name="target_url"[^>]*required/, 'google targets never require the caldav href');
 });
 
-// --- tier 1 dashboard surface: filter chips + copy modes -------------------
+// --- tier 1 dashboard surface: filters moved to the filter bar + copy-mode select ---
 
-test('dashboard rows show filter chips when filters are set (and nothing when unset/junk)', () => {
+test('dashboard rows carry no filter chips; filter state lives in the filter bar inputs', () => {
   const base = { id: 1, name: 'P', feed_url: 'https://f/x.ics', calendar_id: 'c', interval_minutes: 360, enabled: 1, synced_count: 0, source_type: 'url' };
   const { body } = renderDashboard({
     pairs: [
@@ -133,18 +140,22 @@ test('dashboard rows show filter chips when filters are set (and nothing when un
     google: { configured: true, connected: true, email: 'x@example.com', redirectUrl: 'https://kalsync.koepke.tech/oauth/callback' },
     csrf: 'TOK',
   });
-  const row1 = body.split('<tr>').find((r) => r.includes('>P</strong>'));
-  assert.match(row1, />inc: standup, planning<\/span>/, 'include chips render joined keywords');
-  assert.match(row1, />exc: gym &quot;leg&quot; day<\/span>/, 'exclude chips render escaped keywords');
-  const row2 = body.split('<tr>').find((r) => r.includes('>Q</strong>'));
-  assert.ok(!row2.includes('>inc:'), 'no filter chips without filters');
-  const row3 = body.split('<tr>').find((r) => r.includes('>R</strong>'));
-  assert.ok(!row3.includes('>inc:') && !row3.includes('>exc:'), 'junk stored JSON renders no chips (never throws)');
-  const row4 = body.split('<tr>').find((r) => r.includes('>S</strong>'));
-  assert.ok(!row4.includes('>inc:') && row4.includes('>exc: lunch</span>'), 'exclude-only pairs show only exc');
+  // No chip markup anywhere in the rows; junk stored JSON must still render.
+  for (const n of ['P', 'Q', 'R', 'S']) {
+    const row = body.split('<tr>').find((r) => r.includes(`data-name="${n}"`));
+    assert.ok(row, `row ${n} rendered`);
+    assert.ok(!row.includes('>inc:'), `row ${n} shows no include chips`);
+    assert.ok(!row.includes('>exc:'), `row ${n} shows no exclude chips`);
+    const chips = row.match(/<span class="chip/g) ?? [];
+    assert.equal(chips.length, 1, `row ${n} carries exactly one chip: the status chip`);
+    assert.ok(!row.includes('mono ellipsis'), `row ${n} has no feed-url line`);
+    assert.match(row, /<strong>/, `row ${n} keeps the strong name`);
+  }
+  // Junk JSON never throws (row R rendered above) - and the filter bar exists.
+  assert.match(body, /id="filter-category"/, 'category picker present in the filter bar');
 });
 
-test('dashboard rows surface the copy mode chip, full mode stays chipless', () => {
+test('dashboard rows keep the copy mode out of the chips; the option lives in the pair form select', () => {
   const base = { id: 1, name: 'P', feed_url: 'https://f/x.ics', calendar_id: 'c', interval_minutes: 360, enabled: 1, synced_count: 0, source_type: 'url' };
   const { body } = renderDashboard({
     pairs: [
@@ -156,11 +167,36 @@ test('dashboard rows surface the copy mode chip, full mode stays chipless', () =
     google: { configured: true, connected: true, email: 'x@example.com', redirectUrl: 'https://kalsync.koepke.tech/oauth/callback' },
     csrf: 'TOK',
   });
-  const rowOf = (name) => body.split('<tr>').find((r) => r.includes(`>${name}</strong>`));
-  assert.match(rowOf('P'), />busy only<\/span>/); // ASCII-safe label
-  assert.match(rowOf('Q'), />generic title<\/span>/);
-  assert.ok(!rowOf('R').includes('>busy only') && !rowOf('R').includes('>generic title'), 'full = chipless (legacy rows too)');
-  assert.ok(!rowOf('S').includes('>busy only'));
+  assert.ok(!body.includes('>busy only<') && !body.includes('>generic title<'), 'no copy-mode chips on the dashboard rows');
+  for (const n of ['P', 'Q', 'R', 'S']) {
+    const row = body.split('<tr>').find((r) => r.includes(`data-name="${n}"`));
+    const chipSpans = (row.match(/<span class="chip/g) || []).length;
+    assert.equal(chipSpans, 1, `row ${n} carries exactly one chip: the status chip`);
+  }
+});
+
+test('status column shows paused for disabled pairs (and only there)', () => {
+  const base = { id: 1, name: 'P', feed_url: 'https://f/x.ics', calendar_id: 'c', interval_minutes: 360, enabled: 1, synced_count: 0, source_type: 'url' };
+  const { body } = renderDashboard({
+    pairs: [
+      { ...base, last_status: 'success' },
+      { ...base, id: 2, name: 'Off', enabled: 0, last_status: 'success' },
+      { ...base, id: 3, name: 'OffErr', enabled: 0, last_status: 'error' },
+      { ...base, id: 4, name: 'OffNoRun', enabled: 0 },
+    ],
+    google: { configured: true, connected: true, email: 'x@example.com', redirectUrl: 'https://kalsync.koepke.tech/oauth/callback' },
+    csrf: 'TOK',
+  });
+  const onRow = body.split('<tr>').find((r) => r.includes('data-enabled="1"'));
+  assert.match(onRow, /chip-ok">ok<\/span>/, 'enabled pair keeps the status chip');
+  assert.ok(!onRow.includes('>paused<'), 'enabled pairs never show paused');
+  for (const n of ['Off', 'OffErr', 'OffNoRun']) {
+    const row = body.split('<tr>').find((r) => r.includes(`data-name="${n}"`));
+    assert.ok(row, `row ${n} rendered`);
+    assert.ok(row.includes('data-enabled="0"'), 'data-enabled attr unchanged (client filter dependency)');
+    assert.match(row, /<span class="chip">paused<\/span>/, `disabled pair ${n} shows the paused chip in the Status column`);
+    assert.ok(!row.includes('chip-ok') && !row.includes('chip-err'), 'paused hides the stale run-status look');
+  }
 });
 
 test('pair form offers include/exclude keyword inputs and the Copy details select', () => {

@@ -427,10 +427,10 @@ test('render: filter bar with search, category + status pickers, clear button an
   const { body } = renderDashboard({ pairs: [basePair()], google: googleStateStub(), tags: [], csrf: 'TOK' });
   assert.match(body, /id="filter-q"[^>]*placeholder="Search name or feed URL"/);
   assert.match(body, /<select id="filter-category"/);
-  assert.match(body, /<option value="google">Google<\/option>/);
-  assert.match(body, /<option value="caldav">CalDAV<\/option>/);
-  assert.match(body, /<option value="webcal">WebCal<\/option>/);
-  assert.match(body, /<option value="ics">ICS feed<\/option>/);
+  assert.match(body, /<option value="google">google<\/option>/);
+  assert.match(body, /<option value="caldav">caldav<\/option>/);
+  assert.match(body, /<option value="webcal">webcal<\/option>/);
+  assert.match(body, /<option value="ics">ics<\/option>/);
   assert.match(body, /<select id="filter-status"/);
   assert.match(body, /<option value="enabled">Enabled<\/option>/);
   assert.match(body, /<option value="paused">Paused<\/option>/);
@@ -439,7 +439,7 @@ test('render: filter bar with search, category + status pickers, clear button an
   assert.match(body, /id="no-pairs-match"[^>]*hidden/, 'no-pairs-match line renders hidden');
 });
 
-test('render: category chips per shape (google/caldav/webcal/ics) plus exact auto-detected label', () => {
+test('render: Source column shows the short token per shape, tooltip for the auto-detected sub-format', () => {
   const pairs = [
     basePair({ id: 1, name: 'G', feed_url: 'google://g1', source_type: 'google' }),
     basePair({ id: 2, name: 'C', feed_url: 'caldav://caldav.icloud.com/1/calendars/a/', source_type: 'caldav', calendar_id: 'cal-2' }),
@@ -449,21 +449,25 @@ test('render: category chips per shape (google/caldav/webcal/ics) plus exact aut
   ];
   const { body } = renderDashboard({ pairs, google: googleStateStub(), tags: [], csrf: 'TOK' });
 
+  const expectSource = (row, key, extra = '') => {
+    assert.match(row, new RegExp(`data-sort-key="category" data-sort-value="${key}"${extra}><span class="mono">${key}</span></td>`), `Source cell shows the short key ${key}`);
+  };
   const gRow = rowFor(body, 'G');
   assert.match(gRow, /class="namecell" data-name="G"[^>]*data-category="google"/, 'row-level category attribute doubles as the filter target');
-  assert.match(gRow, /<span class="chip cat-chip" data-category="google">Google<\/span>/);
+  expectSource(gRow, 'google');
   const cRow = rowFor(body, 'C');
   assert.match(cRow, /data-category="caldav"/);
-  assert.match(cRow, />CalDAV \(iCloud\)<\/span>/);
+  expectSource(cRow, 'caldav');
   const wRow = rowFor(body, 'W');
   assert.match(wRow, /data-category="webcal"/);
-  assert.match(wRow, />WebCal<\/span>/);
+  expectSource(wRow, 'webcal');
   const iRow = rowFor(body, 'I');
   assert.match(iRow, /data-category="ics"/);
-  assert.match(iRow, />ICS feed<\/span>/);
+  expectSource(iRow, 'ics');
   const vRow = rowFor(body, 'V');
-  assert.match(vRow, />ICS feed \(auto-detected\)<\/span>/, 'exact label for a content-sniffed sub-format');
-  assert.match(vRow, /title="The sub-format \(VCS, XCal or JCal\) is auto-detected[^"]*"/, 'tooltip note attached');
+  expectSource(vRow, 'ics', ' title="The sub-format \\(VCS, XCal or JCal\\) is auto-detected[^"]*"');
+  assert.match(vRow, /title="The sub-format \(VCS, XCal or JCal\) is auto-detected/, 'tooltip note attached as the cell title');
+  assert.ok(!body.includes('cat-chip'), 'no chip wrapper on the Source cell');
 });
 
 test('render: rows carry the data attributes the client sort and filter read', () => {
@@ -650,8 +654,7 @@ test('vcs-marked content labels a url+http(s) pair as "ICS feed (auto-detected)"
     const lastDetails = db.lastRunDetailByPair();
     const enriched = [{ ...pair, last_run_detail: lastDetails.get(Number(pair.id)) ?? null, tags: [] }];
     const { body } = renderDashboard({ pairs: enriched, google: googleStateStub(), tags: [], csrf: 'T' });
-    assert.match(body, />ICS feed \(auto-detected\)<\/span>/, 'runtime-detected sub-format flips the label');
+    assert.match(body, /data-sort-value="ics"[^>]*><span class="mono">ics<\/span><\/td>/, 'runtime-detected sub-format renders the ics token');
     assert.match(body, /title="The sub-format \(VCS, XCal or JCal\) is auto-detected/);
-    assert.ok(!body.includes('>ICS feed</span></td>'), 'plain ICS label absent for the auto-detected row');
   });
 });

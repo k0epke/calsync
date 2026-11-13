@@ -144,8 +144,7 @@ th.sort-asc .sort-arrow, th.sort-desc .sort-arrow { color: var(--accent); }
 }
 #filter-count { min-width: 12ch; }
 
-/* Category + tag chips. */
-.cat-chip { background: #e0e7ff; color: #3730a3; }
+/* Tag chips (status/paused chips use the generic .chip styles above). */
 .tag-chip {
   display: inline-block; padding: 0.1rem 0.55rem; border-radius: 999px;
   font-size: 0.72rem; font-weight: 600; color: #ffffff;
