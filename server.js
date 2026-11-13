@@ -1,4 +1,4 @@
-// CalSync — self-hosted calendar feed -> Google Calendar sync.
+// kalsynk — self-hosted calendar feed -> Google Calendar sync.
 // Plain ESM Node web service: npm ci && node server.js
 import express from 'express';
 import session from 'express-session';
@@ -50,7 +50,7 @@ if (!config.sessionSecret) {
   logger.warn('SESSION_SECRET not set — generated an ephemeral secret (all sessions are invalidated on restart). Set it in .env for stable sessions.');
 }
 if (isProductionBind) {
-  logger.warn(`Binding ${config.host}:${config.port} — this is a PUBLIC bind. Put a TLS reverse proxy in front (see deploy/nginx-calsync.conf),`);
+  logger.warn(`Binding ${config.host}:${config.port} — this is a PUBLIC bind. Put a TLS reverse proxy in front (see deploy/nginx-kalsynk.conf),`);
   logger.warn('set SESSION_COOKIE_SECURE=true, and make sure ADMIN_PASSWORD/SESSION_SECRET are strong.');
 }
 
@@ -135,7 +135,7 @@ if (config.trustProxy) app.set('trust proxy', 1);
 
 app.use(express.urlencoded({ extended: false, limit: '64kb' }));
 app.use(session({
-  name: 'calsync.sid',
+  name: 'kalsynk.sid',
   secret: config.sessionSecret,
   resave: false,
   saveUninitialized: false,
@@ -183,7 +183,7 @@ function safeNext(n) {
 
 // --- public, unauthenticated ---------------------------------------------------
 app.get('/healthz', (req, res) => {
-  res.status(200).json({ ok: true, service: 'calsync', uptime: Math.round(process.uptime()) });
+  res.status(200).json({ ok: true, service: 'kalsynk', uptime: Math.round(process.uptime()) });
 });
 
 // Static assets are authenticated like everything else.
@@ -566,7 +566,7 @@ app.get('/oauth/callback', async (req, res) => {
     if (!code) return redirectWith(res, { err: 'Missing authorization code.' });
     const { tokens } = await oauthClient.getToken(code);
     if (!tokens.refresh_token) {
-      return redirectWith(res, { err: 'Google did not return a refresh token — revoke CalSync at https://myaccount.google.com/permissions then reconnect.' });
+      return redirectWith(res, { err: 'Google did not return a refresh token — revoke kalsynk at https://myaccount.google.com/permissions then reconnect.' });
     }
     oauthClient.setCredentials(tokens);
     const probe = new GoogleCalendarClient(oauthClient, { logger });
@@ -611,7 +611,7 @@ app.use((err, req, res, _next) => { // eslint-disable-line no-unused-vars
 
 // --- boot ---------------------------------------------------------------------------
 const server = app.listen(config.port, config.host, () => {
-  logger.info(`CalSync listening on http://${config.host}:${config.port}`);
+  logger.info(`kalsynk listening on http://${config.host}:${config.port}`);
   logger.info('GET /healthz is public; everything else requires login.');
   logger.info(`SQLite database: ${config.dbPath}`);
   scheduler.startAll();

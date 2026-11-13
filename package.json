@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Self-hosted calendar feed -> Google Calendar sync service with a small authenticated dashboard.",
+  "description": "kalsynk - self-hosted calendar feed -> Google Calendar sync service with a small authenticated dashboard.",
   "license": "MIT",
   "engines": {
     "node": ">=22"
